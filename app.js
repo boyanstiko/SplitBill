@@ -593,8 +593,10 @@
     else if (stepId === 'step-summary') renderSummary();
   });
 
-  if (!loadState()) {
-    renderItems();
-    showStep('step-upload', false);
-  }
+  // Винаги отваряме от първата стъпка с празно състояние (без възстановяване от localStorage)
+  try {
+    localStorage.removeItem(STATE_KEY);
+  } catch (e) { /* ignored */ }
+  renderItems();
+  showStep('step-upload', false);
 })();
