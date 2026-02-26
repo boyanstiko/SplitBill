@@ -143,30 +143,59 @@
     });
   }
 
+  /** Нормализира снимка за OCR: корекция на ориентация (EXIF) и намаляване на размера за мобилни. */
+  function normalizeImageForOcr(dataUrl, maxSize, cb) {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const scale = maxSize && (w > maxSize || h > maxSize)
+        ? maxSize / Math.max(w, h)
+        : 1;
+      const cw = Math.round(w * scale);
+      const ch = Math.round(h * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, cw, ch);
+      try {
+        cb(canvas.toDataURL('image/jpeg', 0.92));
+      } catch (e) {
+        cb(dataUrl);
+      }
+    };
+    img.onerror = () => cb(dataUrl);
+    img.src = dataUrl;
+  }
+
   btnScan.addEventListener('click', () => {
     if (!state.imageDataUrl) return;
     const statusEl = document.createElement('div');
     statusEl.className = 'ocr-loading';
-    statusEl.innerHTML = '<span class="spinner"></span> Извличане на текст от снимката...';
+    statusEl.innerHTML = '<span class="spinner"></span> Подготвям снимката...';
     imagePreview.appendChild(statusEl);
     btnScan.disabled = true;
 
-    Tesseract.recognize(state.imageDataUrl, 'bul+eng', {
-      logger: (m) => { if (m.status) statusEl.innerHTML = '<span class="spinner"></span> ' + m.status; }
-    }).then(({ data: { text } }) => {
-      statusEl.remove();
-      btnScan.disabled = false;
-      parseReceiptText(text);
-      showStep('step-items');
-      renderItems();
-      saveState();
-    }).catch(() => {
-      statusEl.remove();
-      btnScan.disabled = false;
-      parseReceiptText('');
-      showStep('step-items');
-      renderItems();
-      saveState();
+    normalizeImageForOcr(state.imageDataUrl, 1200, (imageForOcr) => {
+      statusEl.innerHTML = '<span class="spinner"></span> Извличане на текст от снимката...';
+      Tesseract.recognize(imageForOcr, 'bul+eng', {
+        logger: (m) => { if (m.status) statusEl.innerHTML = '<span class="spinner"></span> ' + m.status; }
+      }).then(({ data: { text } }) => {
+        statusEl.remove();
+        btnScan.disabled = false;
+        parseReceiptText(text);
+        showStep('step-items');
+        renderItems();
+        saveState();
+      }).catch(() => {
+        statusEl.remove();
+        btnScan.disabled = false;
+        parseReceiptText('');
+        showStep('step-items');
+        renderItems();
+        saveState();
+      });
     });
   });
 
