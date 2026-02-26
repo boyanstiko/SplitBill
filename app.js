@@ -232,19 +232,36 @@
     return RECEIPT_SKIP_PATTERNS.some(r => r.test(t));
   }
 
+  const LABEL_UNREADABLE = 'НЕ СЕ ЧЕТЕ';
+  const MAX_PRICE = 999999.99;
+
+  /** Намира последната сума във формата число с 2 десетични (и по избор интервали за хиляди). */
+  function findLastPriceOnLine(line) {
+    const regex = /([\d\s]+)[.,](\d{2})\s*(?:€|eur|лв|лв\.|bgn)?/gi;
+    let last = null;
+    let m;
+    while ((m = regex.exec(line)) !== null) last = m;
+    return last;
+  }
+
+  function parsePriceFromMatch(match) {
+    const numPart = (match[1] || '').replace(/\s/g, '');
+    const decPart = match[2] || '00';
+    const priceStr = (numPart + '.' + decPart).replace(',', '.');
+    return parseFloat(priceStr);
+  }
+
   function parseReceiptText(text) {
     const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const parsed = [];
-    const priceRegex = /[\d]+[.,]\d{2}$/;
     const qtyPrefixRegex = /^(\d+)(?:[.,]\d+)?\s*[xX]\s+/;
 
     for (const line of lines) {
       if (isReceiptSkipLine(line)) continue;
-      const match = line.match(priceRegex);
+      const match = findLastPriceOnLine(line);
       if (!match) continue;
-      const priceStr = match[0].replace(',', '.');
-      const price = parseFloat(priceStr);
-      if (isNaN(price) || price <= 0 || price > 99999) continue;
+      const price = parsePriceFromMatch(match);
+      if (isNaN(price) || price <= 0 || price > MAX_PRICE) continue;
       let label = line.slice(0, match.index).trim();
       let qty = 1;
       const qtyMatch = label.match(qtyPrefixRegex);
@@ -252,7 +269,7 @@
         qty = Math.max(1, parseInt(qtyMatch[1], 10) || 1);
         label = label.slice(qtyMatch[0].length).trim();
       }
-      if (label.length < 2) continue;
+      if (!label || label.length < 2) label = LABEL_UNREADABLE;
       parsed.push({ label, price, qty });
     }
 
@@ -409,7 +426,7 @@
       const assigned = state.assignments[item.id] || [];
       card.innerHTML = `
         <span class="item-label">${escapeHtml(item.label) || '(без име)'}</span>
-        <span class="item-price">${formatMoney(price)} лв</span>
+        <span class="item-price">${formatMoney(price)} €</span>
         <p class="assign-per-person"></p>
         <div class="assign-quick">
           <button type="button" class="btn-link assign-all">Всички</button>
@@ -423,7 +440,7 @@
       const updatePerPerson = () => {
         const ids = state.assignments[item.id] || [];
         const n = ids.length;
-        perPersonEl.textContent = n > 0 ? 'По ' + formatMoney(price / n) + ' лв на човек' : '';
+        perPersonEl.textContent = n > 0 ? 'По ' + formatMoney(price / n) + ' € на човек' : '';
       };
       state.people.forEach(person => {
         const label = document.createElement('label');
@@ -501,7 +518,7 @@
       card.className = 'summary-card' + (amount === 0 ? ' summary-zero' : '');
       card.innerHTML = `
         <span class="person-name">${escapeHtml(person.name)}</span>
-        <span class="person-amount">${amount === 0 ? 'Не дължи' : formatMoney(amount) + ' лв'}</span>
+        <span class="person-amount">${amount === 0 ? 'Не дължи' : formatMoney(amount) + ' €'}</span>
       `;
       summaryList.appendChild(card);
     });
@@ -529,7 +546,7 @@
         const perPerson = price / personIds.length;
         personIds.forEach(pid => { owes[pid] = (owes[pid] || 0) + perPerson; });
       });
-      const lines = state.people.map(p => `${p.name}: ${owes[p.id] === 0 ? 'Не дължи' : formatMoney(owes[p.id]) + ' лв'}`);
+      const lines = state.people.map(p => `${p.name}: ${owes[p.id] === 0 ? 'Не дължи' : formatMoney(owes[p.id]) + ' €'}`);
       const text = lines.join('\n');
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => showToast('Копирано!')).catch(() => showToast('Копирането не успя.'));
