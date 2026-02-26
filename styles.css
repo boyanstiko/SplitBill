@@ -219,7 +219,7 @@ body {
 }
 .item-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 0.5rem;
   align-items: center;
   padding: 0.6rem 0.75rem;
@@ -261,17 +261,12 @@ body {
 }
 .totals-row strong { color: #68d391; font-size: 1.2rem; }
 
-.item-row .item-qty {
-  width: 3.25rem;
-  min-height: 44px;
-  background: rgba(0,0,0,0.25);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 8px;
-  padding: 0.5rem 0.4rem;
-  color: #fff;
-  font-size: 16px;
-  text-align: center;
+.btn-duplicate {
+  background: rgba(72, 187, 120, 0.25);
+  color: #9ae6b4;
 }
+.btn-duplicate:hover { background: rgba(72, 187, 120, 0.35); }
+.btn-duplicate:active { background: rgba(72, 187, 120, 0.4); }
 .error-hint {
   margin: 0.5rem 0 0;
   font-size: 0.95rem;

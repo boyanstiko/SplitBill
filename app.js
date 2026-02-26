@@ -82,7 +82,7 @@
   }
 
   function getTotalSum() {
-    return state.items.reduce((sum, it) => sum + (Number(it.price) || 0), 0);
+    return state.items.reduce((sum, it) => sum + (Number(it.price) || 0) * (it.qty != null ? it.qty : 1), 0);
   }
 
   function formatMoney(n) {
@@ -295,23 +295,23 @@
   function renderItems() {
     itemsList.innerHTML = '';
     state.items.forEach(item => {
-      const qty = item.qty != null ? item.qty : 1;
       const li = document.createElement('li');
       li.className = 'item-row';
       li.dataset.id = item.id;
       li.innerHTML = `
-        <input type="number" class="item-qty" min="1" step="1" value="${escapeHtml(String(qty))}" placeholder="1" title="Количество">
         <input type="text" class="item-label" placeholder="Артикул" value="${escapeHtml(item.label)}">
-        <input type="number" class="item-price" placeholder="0.00" step="0.01" min="0" value="${escapeHtml(item.price)}">
+        <input type="number" class="item-price" placeholder="0.00" step="0.01" min="0" max="9999" value="${escapeHtml(item.price)}">
+        <button type="button" class="btn btn-duplicate btn-small btn-duplicate-item" aria-label="Дублирай">⎘</button>
         <button type="button" class="btn btn-danger btn-small btn-remove-item" aria-label="Премахни">✕</button>
       `;
-      li.querySelector('.item-qty').addEventListener('input', (e) => {
-        const v = parseInt(e.target.value, 10);
-        item.qty = (v >= 1 ? v : 1) || 1;
-        saveState();
-      });
       li.querySelector('.item-label').addEventListener('input', (e) => { item.label = e.target.value; saveState(); });
       li.querySelector('.item-price').addEventListener('input', (e) => { item.price = e.target.value; updateTotal(); saveState(); });
+      li.querySelector('.btn-duplicate-item').addEventListener('click', () => {
+        const copy = { id: nextItemId++, label: item.label, price: item.price, qty: 1 };
+        state.items.splice(state.items.indexOf(item) + 1, 0, copy);
+        renderItems();
+        saveState();
+      });
       li.querySelector('.btn-remove-item').addEventListener('click', () => {
         state.items = state.items.filter(i => i.id !== item.id);
         delete state.assignments[item.id];
@@ -416,17 +416,21 @@
   const btnBackPeople = document.getElementById('btn-back-people');
   const btnToSummary = document.getElementById('btn-to-summary');
 
+  function getItemTotal(item) {
+    return (Number(item.price) || 0) * (item.qty != null ? item.qty : 1);
+  }
+
   function renderAssign() {
     assignList.innerHTML = '';
     state.items.forEach(item => {
-      const price = Number(item.price) || 0;
-      if (price <= 0) return;
+      const total = getItemTotal(item);
+      if (total <= 0) return;
       const card = document.createElement('div');
       card.className = 'assign-card';
       const assigned = state.assignments[item.id] || [];
       card.innerHTML = `
         <span class="item-label">${escapeHtml(item.label) || '(без име)'}</span>
-        <span class="item-price">${formatMoney(price)} €</span>
+        <span class="item-price">${formatMoney(total)} €</span>
         <p class="assign-per-person"></p>
         <div class="assign-quick">
           <button type="button" class="btn-link assign-all">Всички</button>
@@ -440,7 +444,7 @@
       const updatePerPerson = () => {
         const ids = state.assignments[item.id] || [];
         const n = ids.length;
-        perPersonEl.textContent = n > 0 ? 'По ' + formatMoney(price / n) + ' € на човек' : '';
+        perPersonEl.textContent = n > 0 ? 'По ' + formatMoney(total / n) + ' € на човек' : '';
       };
       state.people.forEach(person => {
         const label = document.createElement('label');
@@ -497,10 +501,10 @@
     state.people.forEach(p => { owes[p.id] = 0; });
 
     state.items.forEach(item => {
-      const price = Number(item.price) || 0;
+      const total = getItemTotal(item);
       const personIds = state.assignments[item.id] || [];
       if (personIds.length === 0) return;
-      const perPerson = price / personIds.length;
+      const perPerson = total / personIds.length;
       personIds.forEach(pid => { owes[pid] = (owes[pid] || 0) + perPerson; });
     });
 
@@ -540,10 +544,10 @@
       const owes = {};
       state.people.forEach(p => { owes[p.id] = 0; });
       state.items.forEach(item => {
-        const price = Number(item.price) || 0;
+        const total = getItemTotal(item);
         const personIds = state.assignments[item.id] || [];
         if (personIds.length === 0) return;
-        const perPerson = price / personIds.length;
+        const perPerson = total / personIds.length;
         personIds.forEach(pid => { owes[pid] = (owes[pid] || 0) + perPerson; });
       });
       const lines = state.people.map(p => `${p.name}: ${owes[p.id] === 0 ? 'Не дължи' : formatMoney(owes[p.id]) + ' €'}`);
