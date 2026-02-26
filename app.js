@@ -143,7 +143,22 @@
     });
   }
 
-  /** Нормализира снимка за OCR: корекция на ориентация (EXIF) и намаляване на размера за мобилни. */
+  /** Подобрява canvas за OCR: сиво, контраст и леко изостряне — помага при снимки от камера. */
+  function enhanceCanvasForOcr(ctx, width, height) {
+    const data = ctx.getImageData(0, 0, width, height);
+    const d = data.data;
+    const contrast = 1.35;
+    const mid = 128;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      let gray = (0.299 * r + 0.587 * g + 0.114 * b);
+      gray = Math.max(0, Math.min(255, (gray - mid) * contrast + mid));
+      d[i] = d[i + 1] = d[i + 2] = gray;
+    }
+    ctx.putImageData(data, 0, 0);
+  }
+
+  /** Нормализира снимка за OCR: ориентация, размер, подобрение контраст за снимки/камера. */
   function normalizeImageForOcr(dataUrl, maxSize, cb) {
     const img = new Image();
     img.onload = () => {
@@ -160,7 +175,8 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, cw, ch);
       try {
-        cb(canvas.toDataURL('image/jpeg', 0.92));
+        enhanceCanvasForOcr(ctx, cw, ch);
+        cb(canvas.toDataURL('image/jpeg', 0.95));
       } catch (e) {
         cb(dataUrl);
       }
@@ -177,10 +193,11 @@
     imagePreview.appendChild(statusEl);
     btnScan.disabled = true;
 
-    normalizeImageForOcr(state.imageDataUrl, 1200, (imageForOcr) => {
+    normalizeImageForOcr(state.imageDataUrl, 2000, (imageForOcr) => {
       statusEl.innerHTML = '<span class="spinner"></span> Извличане на текст от снимката...';
       Tesseract.recognize(imageForOcr, 'bul+eng', {
-        logger: (m) => { if (m.status) statusEl.innerHTML = '<span class="spinner"></span> ' + m.status; }
+        logger: (m) => { if (m.status) statusEl.innerHTML = '<span class="spinner"></span> ' + m.status; },
+        tessedit_pageseg_mode: '4'
       }).then(({ data: { text } }) => {
         statusEl.remove();
         btnScan.disabled = false;
