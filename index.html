@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Раздели сметката</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>Раздели сметката</h1>
+      <p class="subtitle">Качи бележка, добави хора, разпредели поръчките</p>
+    </header>
+
+    <main class="main">
+      <!-- Стъпка 1: Качване на снимка -->
+      <section id="step-upload" class="step active">
+        <h2>1. Качи снимка на касовата бележка</h2>
+        <div class="upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept="image/*" capture="environment" hidden>
+          <p class="upload-text">Кликни или пусни снимка тук</p>
+          <p class="upload-hint">или направи снимка с телефона</p>
+        </div>
+        <div id="image-preview" class="image-preview hidden"></div>
+        <div class="step-actions">
+          <button type="button" id="btn-scan" class="btn btn-primary hidden">Извлечи текста от снимката</button>
+          <button type="button" id="btn-skip-scan" class="btn btn-secondary hidden">Въведи ръчно</button>
+        </div>
+      </section>
+
+      <!-- Стъпка 2: Редакция на редове от бележката -->
+      <section id="step-items" class="step">
+        <h2>2. Редове от бележката</h2>
+        <p class="hint">Добави или редактирай артикули и цени. Премахни редове, които не са поръчки (напр. обща сума).</p>
+        <div class="items-toolbar">
+          <button type="button" id="btn-add-item" class="btn btn-secondary">+ Добави ред</button>
+        </div>
+        <ul id="items-list" class="items-list"></ul>
+        <div class="totals-row">
+          <span>Обща сума:</span>
+          <strong id="total-sum">0.00</strong> лв
+        </div>
+        <div class="step-actions">
+          <button type="button" id="btn-to-people" class="btn btn-primary">Напред → Добави хора</button>
+        </div>
+      </section>
+
+      <!-- Стъпка 3: Добавяне на хора -->
+      <section id="step-people" class="step">
+        <h2>3. Кой плаща заедно?</h2>
+        <p class="hint">Добави имената на всички, които споделят сметката.</p>
+        <div class="people-input-row">
+          <input type="text" id="person-name" placeholder="Име" maxlength="50">
+          <button type="button" id="btn-add-person" class="btn btn-primary">Добави</button>
+        </div>
+        <ul id="people-list" class="people-list"></ul>
+        <div class="step-actions">
+          <button type="button" id="btn-back-items" class="btn btn-secondary">← Назад</button>
+          <button type="button" id="btn-to-assign" class="btn btn-primary">Напред → Разпредели поръчките</button>
+        </div>
+      </section>
+
+      <!-- Стъпка 4: Разпределяне на редове към хора -->
+      <section id="step-assign" class="step">
+        <h2>4. Кой какво е поръчал?</h2>
+        <p class="hint">За всеки ред избери един или няколко човека. Цената ще се раздели по равно между избраните.</p>
+        <div id="assign-list" class="assign-list"></div>
+        <div class="step-actions">
+          <button type="button" id="btn-back-people" class="btn btn-secondary">← Назад</button>
+          <button type="button" id="btn-to-summary" class="btn btn-primary">Виж кой колко дължи</button>
+        </div>
+      </section>
+
+      <!-- Стъпка 5: Обобщение -->
+      <section id="step-summary" class="step">
+        <h2>5. Кой колко дължи</h2>
+        <div id="summary-list" class="summary-list"></div>
+        <div class="step-actions">
+          <button type="button" id="btn-back-assign" class="btn btn-secondary">← Назад</button>
+          <button type="button" id="btn-new-bill" class="btn btn-primary">Нова сметка</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Всичко се изчислява само в браузъра — снимките не се изпращат никъде.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
