@@ -1,30 +1,40 @@
-/* Reset & base */
+/* Reset & base — оптимизирано за смартфон */
 *, *::before, *::after { box-sizing: border-box; }
-html { font-size: 16px; scroll-behavior: smooth; }
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
 body {
   margin: 0;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   color: #e8e8e8;
   min-height: 100vh;
+  min-height: 100dvh;
   line-height: 1.5;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .app {
-  max-width: 520px;
+  max-width: 100%;
   margin: 0 auto;
   padding: 1rem 1.25rem 2rem;
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Header */
 .header {
   text-align: center;
   margin-bottom: 1.5rem;
-  padding-top: 0.5rem;
+  padding-top: max(0.5rem, env(safe-area-inset-top));
 }
 .header h1 {
-  font-size: 1.75rem;
+  font-size: clamp(1.4rem, 5vw, 1.75rem);
   font-weight: 700;
   margin: 0 0 0.25rem;
   color: #fff;
@@ -32,9 +42,56 @@ body {
 }
 .subtitle {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   color: #a0aec0;
 }
+
+/* Stepper — големи докосваеми зони */
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+.stepper-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #718096;
+  background: rgba(255,255,255,0.08);
+  border: 2px solid transparent;
+  text-decoration: none;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.stepper-dot:active { color: #e2e8f0; background: rgba(255,255,255,0.12); }
+.stepper-dot.current,
+.stepper-dot[aria-current="true"] {
+  color: #fff;
+  background: #4299e1;
+  border-color: #63b3ed;
+}
+.stepper-dot.done {
+  color: #68d391;
+  background: rgba(104, 211, 145, 0.2);
+  border-color: rgba(104, 211, 145, 0.4);
+}
+.stepper-line {
+  width: 14px;
+  height: 2px;
+  background: rgba(255,255,255,0.15);
+  margin: 0 2px;
+}
+.stepper-line.done { background: rgba(104, 211, 145, 0.5); }
 
 /* Steps */
 .step {
@@ -45,33 +102,35 @@ body {
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .step h2 {
-  font-size: 1.15rem;
+  font-size: 1.2rem;
   font-weight: 600;
   margin: 0 0 0.5rem;
   color: #e2e8f0;
 }
 .step .hint {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: #94a3b8;
   margin: 0 0 1rem;
 }
 
-/* Upload zone */
+/* Upload zone — висока зона за докосване */
 .upload-zone {
   border: 2px dashed #4a5568;
   border-radius: 12px;
-  padding: 2rem 1.5rem;
+  padding: 2.5rem 1.5rem;
+  min-height: 140px;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
   background: rgba(255,255,255,0.03);
+  -webkit-tap-highlight-color: transparent;
 }
-.upload-zone:hover, .upload-zone.dragover {
+.upload-zone:active, .upload-zone.dragover {
   border-color: #63b3ed;
   background: rgba(99, 179, 237, 0.08);
 }
-.upload-text { margin: 0 0 0.25rem; font-weight: 500; }
-.upload-hint { margin: 0; font-size: 0.85rem; color: #718096; }
+.upload-text { margin: 0 0 0.25rem; font-weight: 500; font-size: 1rem; }
+.upload-hint { margin: 0; font-size: 0.9rem; color: #718096; }
 
 .image-preview {
   margin-top: 1rem;
@@ -82,60 +141,77 @@ body {
 .image-preview img {
   display: block;
   max-width: 100%;
-  max-height: 280px;
+  max-height: 50vh;
+  max-height: 50dvh;
   object-fit: contain;
   margin: 0 auto;
 }
 .image-preview.hidden { display: none; }
 
 .step-actions {
-  margin-top: 1.25rem;
+  margin-top: 1.5rem;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 0.75rem;
-  align-items: center;
+  align-items: stretch;
+}
+.step-actions .btn {
+  min-height: 48px;
+  width: 100%;
 }
 
-/* Buttons */
+/* Buttons — мин. 48px височина за докосване */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.6rem 1.1rem;
-  font-size: 0.95rem;
+  padding: 0.75rem 1.25rem;
+  min-height: 48px;
+  font-size: 1rem;
   font-weight: 600;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.2s;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn:active { transform: scale(0.98); }
 .btn-primary {
   background: linear-gradient(135deg, #4299e1, #3182ce);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(66, 153, 225, 0.35);
+  box-shadow: 0 1px 3px rgba(66, 153, 225, 0.25);
 }
-.btn-primary:hover { box-shadow: 0 4px 12px rgba(66, 153, 225, 0.45); }
+.btn-primary:active { box-shadow: 0 2px 6px rgba(66, 153, 225, 0.35); }
+/* Бутон „Нова сметка“ — по-спокоен вид, без силен отблясък */
+#btn-new-bill.btn-primary {
+  background: #3182ce;
+  box-shadow: none;
+}
+#btn-new-bill.btn-primary:active { background: #2c5282; }
 .btn-secondary {
   background: rgba(255,255,255,0.12);
   color: #e2e8f0;
   border: 1px solid rgba(255,255,255,0.2);
 }
-.btn-secondary:hover { background: rgba(255,255,255,0.18); }
+.btn-secondary:active { background: rgba(255,255,255,0.18); }
 .btn-danger {
   background: rgba(229, 62, 62, 0.2);
   color: #feb2b2;
   border: 1px solid rgba(229, 62, 62, 0.4);
+  min-width: 48px;
+  min-height: 48px;
 }
-.btn-danger:hover { background: rgba(229, 62, 62, 0.3); }
+.btn-danger:active { background: rgba(229, 62, 62, 0.3); }
 .btn-small {
-  padding: 0.35rem 0.6rem;
-  font-size: 0.8rem;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.9rem;
+  min-height: 44px;
 }
 .btn.hidden { display: none; }
 
-/* Items list */
+/* Items list — по-големи полета за пръсти */
 .items-toolbar { margin-bottom: 0.75rem; }
+.items-toolbar .btn { min-height: 48px; }
 .items-list {
   list-style: none;
   margin: 0;
@@ -143,47 +219,67 @@ body {
 }
 .item-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto;
   gap: 0.5rem;
   align-items: center;
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.6rem;
   background: rgba(255,255,255,0.06);
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.08);
 }
 .item-row input[type="text"] {
   min-width: 0;
+  min-height: 44px;
   background: rgba(0,0,0,0.25);
   border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
   color: #fff;
-  font-size: 0.9rem;
+  font-size: 16px; /* спира zoom при фокус на iOS */
 }
 .item-row input[type="number"] {
   width: 4.5rem;
+  min-height: 44px;
   background: rgba(0,0,0,0.25);
   border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  padding: 0.5rem 0.5rem;
   color: #fff;
-  font-size: 0.9rem;
+  font-size: 16px;
   text-align: right;
 }
 .item-row input::placeholder { color: #718096; }
 .totals-row {
   margin-top: 1rem;
   padding: 0.75rem 0;
-  font-size: 1rem;
+  font-size: 1.05rem;
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
   border-top: 1px solid rgba(255,255,255,0.1);
 }
-.totals-row strong { color: #68d391; font-size: 1.1rem; }
+.totals-row strong { color: #68d391; font-size: 1.2rem; }
 
-/* People */
+.item-row .item-qty {
+  width: 3.25rem;
+  min-height: 44px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 0.5rem 0.4rem;
+  color: #fff;
+  font-size: 16px;
+  text-align: center;
+}
+.error-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+  color: #fc8181;
+}
+.error-hint.hidden { display: none !important; }
+
+/* People — високо поле и големи тагове за докосване */
 .people-input-row {
   display: flex;
   gap: 0.5rem;
@@ -191,12 +287,13 @@ body {
 }
 .people-input-row input {
   flex: 1;
+  min-height: 48px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 8px;
-  padding: 0.6rem 0.85rem;
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
   color: #fff;
-  font-size: 1rem;
+  font-size: 16px;
 }
 .people-input-row input::placeholder { color: #718096; }
 .people-list {
@@ -208,77 +305,121 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 0.75rem;
+  padding: 0.5rem 0.85rem;
   margin: 0 0.5rem 0.5rem 0;
+  min-height: 44px;
   background: rgba(72, 187, 120, 0.2);
   border: 1px solid rgba(72, 187, 120, 0.4);
-  border-radius: 20px;
-  font-size: 0.9rem;
+  border-radius: 22px;
+  font-size: 0.95rem;
 }
 .person-tag button {
   background: none;
   border: none;
   color: #9ae6b4;
   cursor: pointer;
-  padding: 0 0.2rem;
-  font-size: 1.1rem;
+  padding: 0.25rem;
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 1.2rem;
   line-height: 1;
-  opacity: 0.8;
+  opacity: 0.9;
+  -webkit-tap-highlight-color: transparent;
 }
-.person-tag button:hover { opacity: 1; }
+.person-tag button:active { opacity: 1; }
 
-/* Assign step */
+/* Assign step — големи чекбокси и линкове за докосване */
 .assign-list { margin-bottom: 1rem; }
 .assign-card {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.75rem;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.85rem;
 }
 .assign-card .item-label {
   font-weight: 500;
   margin-bottom: 0.35rem;
   display: block;
+  font-size: 1rem;
 }
 .assign-card .item-price {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: #68d391;
+  margin-bottom: 0.35rem;
+}
+.assign-card .assign-per-person {
+  font-size: 0.85rem;
+  color: #94a3b8;
   margin-bottom: 0.5rem;
 }
+.assign-card .assign-quick {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  align-items: center;
+}
+.assign-card .assign-quick .btn-link {
+  background: none;
+  border: none;
+  color: #63b3ed;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0.4rem 0.2rem;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: underline;
+  -webkit-tap-highlight-color: transparent;
+}
+.assign-card .assign-quick .btn-link:active { color: #90cdf4; }
 .assign-card .assign-checkboxes {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+  gap: 0.6rem 1rem;
 }
 .assign-card label {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.5rem;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: #cbd5e0;
+  padding: 0.35rem 0;
+  min-height: 44px;
 }
 .assign-card input[type="checkbox"] {
-  width: 1.1em;
-  height: 1.1em;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   accent-color: #4299e1;
+  flex-shrink: 0;
 }
 
-/* Summary */
+/* Summary — по-големи карти за четливост */
+.summary-total {
+  font-size: 1.05rem;
+  margin: 0 0 1rem;
+  color: #94a3b8;
+}
+.summary-total strong { color: #68d391; font-size: 1.2rem; }
+.summary-total.hidden { display: none !important; }
+.summary-card.summary-zero .person-amount { color: #94a3b8; font-weight: 500; }
 .summary-list { margin-bottom: 1rem; }
 .summary-card {
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 10px;
-  padding: 1rem 1.25rem;
-  margin-bottom: 0.75rem;
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 0.85rem;
+  min-height: 56px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.summary-card .person-name { font-weight: 600; font-size: 1.05rem; }
-.summary-card .person-amount { color: #68d391; font-size: 1.2rem; font-weight: 700; }
+.summary-card .person-name { font-weight: 600; font-size: 1.1rem; }
+.summary-card .person-amount { color: #68d391; font-size: 1.25rem; font-weight: 700; }
 
 /* Footer */
 .footer {
@@ -309,6 +450,30 @@ body {
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Toast — над safe area (home indicator) */
+.toast {
+  position: fixed;
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  left: max(1rem, env(safe-area-inset-left));
+  right: max(1rem, env(safe-area-inset-right));
+  margin: 0 auto;
+  max-width: 320px;
+  padding: 0.85rem 1.25rem;
+  background: rgba(104, 211, 145, 0.95);
+  color: #1a202c;
+  font-weight: 500;
+  font-size: 1rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 1000;
+  animation: toastIn 0.25s ease;
+  text-align: center;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* Utility */
 .hidden { display: none !important; }

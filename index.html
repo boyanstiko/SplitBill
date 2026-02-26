@@ -2,7 +2,7 @@
 <html lang="bg">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Раздели сметката</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -12,6 +12,17 @@
     <header class="header">
       <h1>Раздели сметката</h1>
       <p class="subtitle">Качи бележка, добави хора, разпредели поръчките</p>
+      <nav class="stepper" id="stepper" aria-label="Стъпки">
+        <a href="#" class="stepper-dot" data-step="step-upload" aria-current="true">1</a>
+        <span class="stepper-line"></span>
+        <a href="#" class="stepper-dot" data-step="step-items">2</a>
+        <span class="stepper-line"></span>
+        <a href="#" class="stepper-dot" data-step="step-people">3</a>
+        <span class="stepper-line"></span>
+        <a href="#" class="stepper-dot" data-step="step-assign">4</a>
+        <span class="stepper-line"></span>
+        <a href="#" class="stepper-dot" data-step="step-summary">5</a>
+      </nav>
     </header>
 
     <main class="main">
@@ -25,6 +36,7 @@
         </div>
         <div id="image-preview" class="image-preview hidden"></div>
         <div class="step-actions">
+          <button type="button" id="btn-change-photo" class="btn btn-secondary btn-small hidden">Смяна на снимка</button>
           <button type="button" id="btn-scan" class="btn btn-primary hidden">Извлечи текста от снимката</button>
           <button type="button" id="btn-skip-scan" class="btn btn-secondary hidden">Въведи ръчно</button>
         </div>
@@ -42,6 +54,7 @@
           <span>Обща сума:</span>
           <strong id="total-sum">0.00</strong> лв
         </div>
+        <p id="items-error" class="error-hint hidden" role="alert"></p>
         <div class="step-actions">
           <button type="button" id="btn-to-people" class="btn btn-primary">Напред → Добави хора</button>
         </div>
@@ -56,6 +69,7 @@
           <button type="button" id="btn-add-person" class="btn btn-primary">Добави</button>
         </div>
         <ul id="people-list" class="people-list"></ul>
+        <p id="people-error" class="error-hint hidden" role="alert"></p>
         <div class="step-actions">
           <button type="button" id="btn-back-items" class="btn btn-secondary">← Назад</button>
           <button type="button" id="btn-to-assign" class="btn btn-primary">Напред → Разпредели поръчките</button>
@@ -76,10 +90,12 @@
       <!-- Стъпка 5: Обобщение -->
       <section id="step-summary" class="step">
         <h2>5. Кой колко дължи</h2>
+        <p id="summary-total" class="summary-total hidden">Обща сума на сметката: <strong id="summary-total-amount">0.00</strong> лв</p>
         <div id="summary-list" class="summary-list"></div>
         <div class="step-actions">
-          <button type="button" id="btn-back-assign" class="btn btn-secondary">← Назад</button>
           <button type="button" id="btn-new-bill" class="btn btn-primary">Нова сметка</button>
+          <button type="button" id="btn-copy-summary" class="btn btn-secondary">Копирай резултатите</button>
+          <button type="button" id="btn-back-assign" class="btn btn-secondary">← Назад</button>
         </div>
       </section>
     </main>
