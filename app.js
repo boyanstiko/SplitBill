@@ -2,6 +2,17 @@
   'use strict';
 
   const STATE_KEY = 'splitbill-state';
+  const GEMINI_API_KEY = 'AIzaSyAtoIC5ixwzhErRr1EeOqgMKaEL-Pb7xeI';
+  const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+
+  const RECEIPT_PROMPT = `Разчети касовата бележка на снимката. Извлечи само редове с поръчани артикули.
+Пропусни: обща сума, ДДС, бон номер, плащане, касиер, фирма, адрес, дата/час без артикул.
+Цените са в EUR (€) или BGN (лв) — върни числото както е на бележката.
+qty е брой (по подразбиране 1). Ако има "2 x Нещо" — qty=2.
+Върни само валиден JSON по схемата.`;
+
+  const LABEL_UNREADABLE = 'НЕ СЕ ЧЕТЕ';
+  const MAX_PRICE = 999999.99;
 
   const state = {
     imageDataUrl: null,
@@ -94,6 +105,7 @@
   const fileInput = document.getElementById('file-input');
   const imagePreview = document.getElementById('image-preview');
   const btnScan = document.getElementById('btn-scan');
+  const btnScanAi = document.getElementById('btn-scan-ai');
   const btnSkipScan = document.getElementById('btn-skip-scan');
   const btnChangePhoto = document.getElementById('btn-change-photo');
 
@@ -121,6 +133,7 @@
       imagePreview.appendChild(img);
       imagePreview.classList.remove('hidden');
       btnScan.classList.remove('hidden');
+      if (btnScanAi) btnScanAi.classList.remove('hidden');
       btnSkipScan.classList.remove('hidden');
       if (btnChangePhoto) btnChangePhoto.classList.remove('hidden');
       uploadZone.classList.add('hidden');
@@ -135,6 +148,7 @@
       imagePreview.innerHTML = '';
       imagePreview.classList.add('hidden');
       btnScan.classList.add('hidden');
+      if (btnScanAi) btnScanAi.classList.add('hidden');
       btnSkipScan.classList.add('hidden');
       btnChangePhoto.classList.add('hidden');
       uploadZone.classList.remove('hidden');
@@ -158,8 +172,8 @@
     ctx.putImageData(data, 0, 0);
   }
 
-  /** Нормализира снимка за OCR: ориентация, размер, подобрение контраст за снимки/камера. */
-  function normalizeImageForOcr(dataUrl, maxSize, cb) {
+  /** Нормализира снимка: resize; по избор grayscale/контраст за Tesseract. */
+  function normalizeImage(dataUrl, maxSize, enhance, cb) {
     const img = new Image();
     img.onload = () => {
       const w = img.naturalWidth || img.width;
@@ -175,8 +189,8 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, cw, ch);
       try {
-        enhanceCanvasForOcr(ctx, cw, ch);
-        cb(canvas.toDataURL('image/jpeg', 0.95));
+        if (enhance) enhanceCanvasForOcr(ctx, cw, ch);
+        cb(canvas.toDataURL('image/jpeg', 0.92));
       } catch (e) {
         cb(dataUrl);
       }
@@ -185,36 +199,168 @@
     img.src = dataUrl;
   }
 
-  btnScan.addEventListener('click', () => {
-    if (!state.imageDataUrl) return;
+  function parseDataUrl(dataUrl) {
+    const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) return { mimeType: 'image/jpeg', base64: dataUrl.split(',')[1] || dataUrl };
+    return { mimeType: m[1], base64: m[2] };
+  }
+
+  function geminiErrorMessage(err, httpStatus, errBody) {
+    if (!navigator.onLine) return 'Няма интернет. Провери връзката.';
+    if (err && err.name === 'TypeError') {
+      return 'Браузърът блокира заявката. Отвори сайта през http://localhost (не като файл).';
+    }
+    const body = errBody || err?.message || '';
+    if (httpStatus === 429 || /RESOURCE_EXHAUSTED|quota/i.test(body)) {
+      return 'Лимитът на Gemini е изчерпан. Опитай след минута или ползвай „Разчети снимка“.';
+    }
+    if (httpStatus === 403 || /API key not valid|PERMISSION_DENIED/i.test(body)) {
+      return 'Невалиден API ключ. Провери ключа в Google AI Studio.';
+    }
+    if (httpStatus === 400) return 'Грешка в заявката към Gemini. Опитай друга снимка.';
+    return 'AI не успя. Опитай отново или ползвай „Разчети снимка“.';
+  }
+
+  async function scanWithGemini(imageDataUrl) {
+    const { mimeType, base64 } = parseDataUrl(imageDataUrl);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const body = {
+      contents: [{
+        parts: [
+          { text: RECEIPT_PROMPT },
+          { inline_data: { mime_type: mimeType, data: base64 } }
+        ]
+      }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            items: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  label: { type: 'STRING' },
+                  price: { type: 'NUMBER' },
+                  qty: { type: 'INTEGER' }
+                },
+                required: ['label', 'price']
+              }
+            }
+          },
+          required: ['items']
+        }
+      }
+    };
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    } catch (err) {
+      const msg = geminiErrorMessage(err);
+      throw new Error(msg);
+    }
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(geminiErrorMessage(null, res.status, errText));
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error('Gemini не върна резултат. Опитай друга снимка.');
+    const parsed = JSON.parse(text);
+    if (!parsed.items || !Array.isArray(parsed.items)) throw new Error('Невалиден отговор от Gemini.');
+    return parsed.items;
+  }
+
+  function applyParsedItems(rawItems) {
+    const valid = (rawItems || []).filter(it => {
+      const price = Number(it.price);
+      return it.label && !isNaN(price) && price > 0 && price <= MAX_PRICE;
+    });
+    if (valid.length > 0) {
+      state.items = valid.map(it => ({
+        id: nextItemId++,
+        label: String(it.label).trim(),
+        price: formatMoney(Number(it.price)),
+        qty: Math.max(1, parseInt(it.qty, 10) || 1)
+      }));
+    } else {
+      state.items = [{ id: nextItemId++, label: '', price: '', qty: 1 }];
+    }
+  }
+
+  function setScanButtonsDisabled(disabled) {
+    btnScan.disabled = disabled;
+    if (btnScanAi) btnScanAi.disabled = disabled;
+  }
+
+  function finishScan(statusEl) {
+    statusEl.remove();
+    setScanButtonsDisabled(false);
+    showStep('step-items');
+    renderItems();
+    saveState();
+  }
+
+  function failScan(statusEl, message) {
+    statusEl.remove();
+    setScanButtonsDisabled(false);
+    showToast(message);
+  }
+
+  function scanWithTesseract(imageForOcr, statusEl) {
+    statusEl.innerHTML = '<span class="spinner"></span> Разчитане на снимката...';
+    return Tesseract.recognize(imageForOcr, 'bul+eng', {
+      logger: (m) => { if (m.status) statusEl.innerHTML = '<span class="spinner"></span> ' + m.status; },
+      tessedit_pageseg_mode: '4'
+    }).then(({ data: { text } }) => {
+      parseReceiptText(text);
+    });
+  }
+
+  function startScan(statusMessage) {
+    if (!state.imageDataUrl) return null;
     const statusEl = document.createElement('div');
     statusEl.className = 'ocr-loading';
-    statusEl.innerHTML = '<span class="spinner"></span> Подготвям снимката...';
+    statusEl.innerHTML = '<span class="spinner"></span> ' + statusMessage;
     imagePreview.appendChild(statusEl);
-    btnScan.disabled = true;
+    setScanButtonsDisabled(true);
+    return statusEl;
+  }
 
-    normalizeImageForOcr(state.imageDataUrl, 2000, (imageForOcr) => {
-      statusEl.innerHTML = '<span class="spinner"></span> Извличане на текст от снимката...';
-      Tesseract.recognize(imageForOcr, 'bul+eng', {
-        logger: (m) => { if (m.status) statusEl.innerHTML = '<span class="spinner"></span> ' + m.status; },
-        tessedit_pageseg_mode: '4'
-      }).then(({ data: { text } }) => {
-        statusEl.remove();
-        btnScan.disabled = false;
-        parseReceiptText(text);
-        showStep('step-items');
-        renderItems();
-        saveState();
-      }).catch(() => {
-        statusEl.remove();
-        btnScan.disabled = false;
-        parseReceiptText('');
-        showStep('step-items');
-        renderItems();
-        saveState();
-      });
+  btnScan.addEventListener('click', () => {
+    const statusEl = startScan('Подготвям снимката...');
+    if (!statusEl) return;
+    normalizeImage(state.imageDataUrl, 2000, true, (imageForOcr) => {
+      scanWithTesseract(imageForOcr, statusEl)
+        .then(() => finishScan(statusEl))
+        .catch(() => {
+          applyParsedItems([]);
+          finishScan(statusEl);
+        });
     });
   });
+
+  if (btnScanAi) {
+    btnScanAi.addEventListener('click', () => {
+      const statusEl = startScan('Подготвям снимката...');
+      if (!statusEl) return;
+      normalizeImage(state.imageDataUrl, 2000, false, async (imageForGemini) => {
+        statusEl.innerHTML = '<span class="spinner"></span> Разчитане с AI (Gemini)...';
+        try {
+          const items = await scanWithGemini(imageForGemini);
+          applyParsedItems(items);
+          finishScan(statusEl);
+        } catch (e) {
+          failScan(statusEl, e?.message || 'AI не успя. Опитай отново или ползвай „Разчети снимка“.');
+        }
+      });
+    });
+  }
 
   btnSkipScan.addEventListener('click', () => {
     state.items = [];
@@ -231,9 +377,6 @@
     const t = line.trim();
     return RECEIPT_SKIP_PATTERNS.some(r => r.test(t));
   }
-
-  const LABEL_UNREADABLE = 'НЕ СЕ ЧЕТЕ';
-  const MAX_PRICE = 999999.99;
 
   /** Намира последната сума във формата число с 2 десетични (и по избор интервали за хиляди). */
   function findLastPriceOnLine(line) {
@@ -273,16 +416,7 @@
       parsed.push({ label, price, qty });
     }
 
-    if (parsed.length > 0) {
-      state.items = parsed.map(({ label, price, qty }) => ({
-        id: nextItemId++,
-        label,
-        price: formatMoney(price),
-        qty: qty || 1
-      }));
-    } else {
-      state.items = [{ id: nextItemId++, label: '', price: '', qty: 1 }];
-    }
+    applyParsedItems(parsed);
   }
 
   // ----- Items -----
@@ -571,6 +705,7 @@
     imagePreview.innerHTML = '';
     imagePreview.classList.add('hidden');
     btnScan.classList.add('hidden');
+    if (btnScanAi) btnScanAi.classList.add('hidden');
     btnSkipScan.classList.add('hidden');
     uploadZone.classList.remove('hidden');
     fileInput.value = '';
