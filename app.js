@@ -2,8 +2,11 @@
   'use strict';
 
   const STATE_KEY = 'splitbill-state';
-  const GEMINI_API_KEY = 'AIzaSyAtoIC5ixwzhErRr1EeOqgMKaEL-Pb7xeI';
   const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+
+  function getGeminiApiKey() {
+    return (window.SPLITBILL_CONFIG && window.SPLITBILL_CONFIG.geminiApiKey) || '';
+  }
 
   const RECEIPT_PROMPT = `Разчети касовата бележка на снимката. Извлечи само редове с поръчани артикули.
 Пропусни: обща сума, ДДС, бон номер, плащане, касиер, фирма, адрес, дата/час без артикул.
@@ -223,7 +226,9 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
 
   async function scanWithGemini(imageDataUrl) {
     const { mimeType, base64 } = parseDataUrl(imageDataUrl);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) throw new Error('Липсва API ключ. Копирай config.example.js като config.local.js.');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
     const body = {
       contents: [{
         parts: [
@@ -347,6 +352,10 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
 
   if (btnScanAi) {
     btnScanAi.addEventListener('click', () => {
+      if (!getGeminiApiKey()) {
+        showToast('Няма API ключ. Копирай config.example.js → config.local.js');
+        return;
+      }
       const statusEl = startScan('Подготвям снимката...');
       if (!statusEl) return;
       normalizeImage(state.imageDataUrl, 2000, false, async (imageForGemini) => {
