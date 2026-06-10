@@ -11,8 +11,16 @@
   const RECEIPT_PROMPT = `Разчети касовата бележка на снимката. Извлечи само редове с поръчани артикули.
 Пропусни: обща сума, ДДС, бон номер, плащане, касиер, фирма, адрес, дата/час без артикул.
 Цените са в EUR (€) или BGN (лв) — върни числото както е на бележката.
-qty е брой (по подразбиране 1). Ако има "2 x Нещо" — qty=2.
-Ако на реда има количество × единична цена (напр. 3x4.40), price е общата сума за реда.
+
+ВАЖНО за български бележки — количеството може да е НАД или ПОД името:
+A) Име, после "2 x 4.40" и сума 8.80
+B) "2x" или "2 x 4.40" и сума 8.80, после името
+C) "2x", после име, после сума
+За всеки артикул: label=името, qty=броят, price=редовата сума (8.80), НЕ единичната (4.40).
+
+qty е брой (по подразбиране 1). "2 x 4.40" означава qty=2 — задължително го попълни.
+price винаги е общата сума за реда (количество × единична цена).
+Не добавяй „×2“ в label — приложението го добавя само.
 Върни само валиден JSON по схемата.`;
 
   const LABEL_UNREADABLE = 'НЕ СЕ ЧЕТЕ';
@@ -117,16 +125,43 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
     return parseFloat(String(s).replace(/\s/g, '').replace(',', '.'));
   }
 
+  function hasQtySuffix(label) {
+    return QTY_SUFFIX_RE.test(String(label || '').trim());
+  }
+
+  function appendQtySuffix(label, qty) {
+    const name = String(label || '').trim().replace(QTY_SUFFIX_RE, '').trim();
+    qty = Math.max(1, parseInt(qty, 10) || 1);
+    if (qty <= 1 || !name || name.length < 2) return name;
+    return name + ' ×' + qty;
+  }
+
+  /** Взима qty от параметъра, „2 x …“ в името или вече добавено „×N“. */
+  function resolveItemQty(label, qty) {
+    let q = Math.max(1, parseInt(qty, 10) || 1);
+    const name = String(label || '').trim();
+    const prefix = name.match(QTY_PREFIX_RE);
+    if (prefix) q = Math.max(q, parseInt(prefix[1], 10) || 1);
+    const suffix = name.match(/×(\d+)$/);
+    if (suffix) q = Math.max(q, parseInt(suffix[1], 10) || 1);
+    let m;
+    const inlineRe = new RegExp(INLINE_QTY_PRICE_RE.source, 'g');
+    while ((m = inlineRe.exec(name)) !== null) {
+      q = Math.max(q, parseInt(m[1], 10) || 1);
+    }
+    return q;
+  }
+
   /** Ако има количество — добавя „×N“ в името и умножава цената до редовата сума. */
   function normalizeItemQty(label, price, qty) {
     let name = String(label || '').trim();
     let p = Number(price);
-    qty = Math.max(1, parseInt(qty, 10) || 1);
-    if (isNaN(p) || p <= 0) return { label: name, price, qty };
+    let detectedQty = resolveItemQty(name, qty);
+    if (isNaN(p) || p <= 0) {
+      return { label: appendQtySuffix(name, detectedQty), price, qty: 1 };
+    }
 
     let unitPrice = null;
-    let detectedQty = qty;
-
     let inlineMatch = null;
     let m;
     while ((m = INLINE_QTY_PRICE_RE.exec(name)) !== null) inlineMatch = m;
@@ -136,21 +171,26 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
       name = name.replace(inlineMatch[0], '').replace(/\s+/g, ' ').trim();
     }
 
+    const qtyPrefix = name.match(QTY_PREFIX_RE);
+    if (qtyPrefix) {
+      detectedQty = Math.max(detectedQty, parseInt(qtyPrefix[1], 10) || 1);
+      name = name.slice(qtyPrefix[0].length).trim();
+    }
+
     name = name.replace(QTY_SUFFIX_RE, '').trim();
 
-    if (detectedQty <= 1) return { label: name, price: formatMoney(p), qty: 1 };
-
-    const expectedTotal = unitPrice != null ? unitPrice * detectedQty : null;
-    if (expectedTotal != null) {
-      if (Math.abs(p - unitPrice) < 0.02) p = expectedTotal;
-      else if (Math.abs(p - expectedTotal) >= 0.02) p = expectedTotal;
-    } else if (!looksLikeLineTotal(p, detectedQty)) {
-      p = p * detectedQty;
+    if (detectedQty > 1) {
+      const expectedTotal = unitPrice != null ? unitPrice * detectedQty : null;
+      if (expectedTotal != null) {
+        if (Math.abs(p - unitPrice) < 0.02) p = expectedTotal;
+        else if (Math.abs(p - expectedTotal) >= 0.02) p = expectedTotal;
+      } else if (!looksLikeLineTotal(p, detectedQty)) {
+        p = p * detectedQty;
+      }
     }
 
     if (!name || name.length < 2) name = LABEL_UNREADABLE;
-    name = name + ' ×' + detectedQty;
-    return { label: name, price: formatMoney(p), qty: 1 };
+    return { label: appendQtySuffix(name, detectedQty), price: formatMoney(p), qty: 1 };
   }
 
   function looksLikeLineTotal(total, qty) {
@@ -367,17 +407,15 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
   }
 
   function applyParsedItems(rawItems) {
-    const valid = (rawItems || []).filter(it => {
+    const valid = preprocessRawItems(rawItems).filter(it => {
       const price = Number(it.price);
       return it.label && !isNaN(price) && price > 0 && price <= MAX_PRICE;
     });
     if (valid.length > 0) {
       state.items = valid.map(it => {
-        const normalized = normalizeItemQty(
-          String(it.label).trim(),
-          Number(it.price),
-          Math.max(1, parseInt(it.qty, 10) || 1)
-        );
+        const label = String(it.label).trim();
+        const qty = resolveItemQty(label, parseInt(it.qty, 10) || 1);
+        const normalized = normalizeItemQty(label, Number(it.price), qty);
         return {
           id: nextItemId++,
           label: normalized.label,
@@ -487,6 +525,117 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
     return line.trim().match(/^(\d+)\s*[xXх×*]\s*([\d]+[.,][\d]{2})\s*$/);
   }
 
+  function isPriceLikeLabel(label) {
+    return /^[\d]+[.,][\d]{2}$/.test(String(label || '').trim());
+  }
+
+  /** Ред само с „2 x 4.40“ и редовата сума вдясно (името е на предишния ред). */
+  function parseQtyPriceLine(line) {
+    const match = findLastPriceOnLine(line);
+    if (!match) return null;
+    const lineTotal = parsePriceFromMatch(match);
+    if (isNaN(lineTotal) || lineTotal <= 0) return null;
+    const before = line.slice(0, match.index).trim();
+    const qtyUnit = before.match(/^(\d+)\s*[xXх×*]\s*([\d]+[.,][\d]{2})\s*$/);
+    if (!qtyUnit) return null;
+    const qty = parseInt(qtyUnit[1], 10);
+    const unitPrice = parseDecimal(qtyUnit[2]);
+    if (!qty || qty < 1 || isNaN(unitPrice) || unitPrice <= 0) return null;
+    return { qty, unitPrice, lineTotal };
+  }
+
+  /** Слева артикули от Gemini при различен ред на име/количество/цена. */
+  function preprocessRawItems(rawItems) {
+    const out = [];
+    const pending = { name: '', qty: 1, bundle: null };
+
+    function resetPending() {
+      pending.name = '';
+      pending.qty = 1;
+      pending.bundle = null;
+    }
+
+    function emit(label, price, qty) {
+      if (!label || !price || price <= 0) return;
+      const q = resolveItemQty(label, qty);
+      const normalized = normalizeItemQty(label, price, q);
+      out.push({ label: normalized.label, price: normalized.price, qty: 1 });
+      resetPending();
+    }
+
+    for (const it of rawItems || []) {
+      const label = String(it.label || '').trim();
+      const price = Number(it.price);
+      const itemQty = Math.max(1, parseInt(it.qty, 10) || 1);
+      if (!label) continue;
+
+      if (isQtyOnlyLine(label)) {
+        pending.qty = Math.max(1, parseInt(label, 10) || 1);
+        continue;
+      }
+
+      const qtyUnitOnly = matchQtyUnitLine(label);
+      if (qtyUnitOnly && (isNaN(price) || price <= 0)) {
+        pending.qty = parseInt(qtyUnitOnly[1], 10) || 1;
+        continue;
+      }
+
+      const qtyLineLabel = label.match(/^(\d+)\s*[xXх×*]\s*([\d]+[.,][\d]{2})\s*$/);
+      if (qtyLineLabel && !isNaN(price) && price > 0) {
+        const q = parseInt(qtyLineLabel[1], 10) || 1;
+        if (pending.name) {
+          emit(pending.name, price, q);
+        } else {
+          pending.bundle = { qty: q, price };
+        }
+        continue;
+      }
+
+      if (isNaN(price) || price <= 0) {
+        if (pending.bundle) {
+          emit(label, pending.bundle.price, pending.bundle.qty);
+        } else {
+          pending.name = pending.name ? pending.name + ' ' + label : label;
+        }
+        continue;
+      }
+
+      const qtyPrefix = label.match(QTY_PREFIX_RE);
+      if (qtyPrefix && pending.name) {
+        const rest = label.slice(qtyPrefix[0].length).trim();
+        if (isPriceLikeLabel(rest)) {
+          emit(pending.name, price, parseInt(qtyPrefix[1], 10) || 1);
+          continue;
+        }
+      }
+
+      if (pending.name) {
+        emit(pending.name, price, pending.qty > 1 ? pending.qty : itemQty);
+        continue;
+      }
+
+      pending.bundle = null;
+      emit(label, price, pending.qty > 1 ? pending.qty : itemQty);
+    }
+
+    return out.length ? out : (rawItems || []);
+  }
+
+  function commitParsedItem(parsed, label, price, qty, unitHint) {
+    const resolvedPrice = resolvePriceWithPendingUnit(price, qty, unitHint);
+    const normalized = normalizeItemQty(label, resolvedPrice, qty);
+    if (!normalized.label || normalized.label === LABEL_UNREADABLE) return false;
+    parsed.push(normalized);
+    return true;
+  }
+
+  function resetReceiptPending(pending) {
+    pending.label = '';
+    pending.qty = 1;
+    pending.unitPrice = null;
+    pending.qtyBundle = null;
+  }
+
   function isPriceOnlyLine(line) {
     return /^[\d\s]+[.,][\d]{2}\s*(?:€|eur|лв|лв\.|bgn)?$/i.test(line.trim());
   }
@@ -526,27 +675,41 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
   function parseReceiptText(text) {
     const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const parsed = [];
-    let pendingQty = 1;
-    let pendingUnitPrice = null;
-    let pendingLabel = '';
+    const pending = { label: '', qty: 1, unitPrice: null, qtyBundle: null };
 
     for (const line of lines) {
       if (isReceiptSkipLine(line)) continue;
 
       if (isQtyOnlyLine(line)) {
-        pendingQty = Math.max(1, parseInt(line, 10) || 1);
+        pending.qty = Math.max(1, parseInt(line, 10) || 1);
+        continue;
+      }
+
+      const qtyPriceLine = parseQtyPriceLine(line);
+      if (qtyPriceLine) {
+        if (pending.label) {
+          commitParsedItem(parsed, pending.label, qtyPriceLine.lineTotal, qtyPriceLine.qty, qtyPriceLine.unitPrice);
+          resetReceiptPending(pending);
+          continue;
+        }
+        pending.qtyBundle = qtyPriceLine;
         continue;
       }
 
       const qtyUnitMatch = matchQtyUnitLine(line);
       if (qtyUnitMatch) {
-        pendingQty = Math.max(1, parseInt(qtyUnitMatch[1], 10) || 1);
-        pendingUnitPrice = parseDecimal(qtyUnitMatch[2]);
+        pending.qty = Math.max(1, parseInt(qtyUnitMatch[1], 10) || 1);
+        pending.unitPrice = parseDecimal(qtyUnitMatch[2]);
         continue;
       }
 
       if (isProductNameOnlyLine(line)) {
-        pendingLabel = pendingLabel ? pendingLabel + ' ' + line.trim() : line.trim();
+        if (pending.qtyBundle) {
+          commitParsedItem(parsed, line.trim(), pending.qtyBundle.lineTotal, pending.qtyBundle.qty, pending.qtyBundle.unitPrice);
+          resetReceiptPending(pending);
+          continue;
+        }
+        pending.label = pending.label ? pending.label + ' ' + line.trim() : line.trim();
         continue;
       }
 
@@ -556,26 +719,23 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
       if (isNaN(price) || price <= 0 || price > MAX_PRICE) continue;
 
       let label = line.slice(0, match.index).trim();
+      const priceOnly = isPriceOnlyLine(line);
 
       if (!label) {
-        if (isPriceOnlyLine(line)) {
-          if (!pendingLabel) continue;
-          label = pendingLabel;
-          pendingLabel = '';
-        } else if (pendingLabel) {
-          label = pendingLabel;
-          pendingLabel = '';
-        } else {
-          continue;
-        }
-      } else {
-        pendingLabel = '';
+        if (!pending.label) continue;
+        label = pending.label;
       }
 
-      let qty = pendingQty;
-      pendingQty = 1;
-      const unitHint = pendingUnitPrice;
-      pendingUnitPrice = null;
+      let qty = pending.qty;
+      let unitHint = pending.unitPrice;
+      let linePrice = price;
+
+      const canUseBundle = pending.qtyBundle && (priceOnly || isPriceLikeLabel(label));
+      if (canUseBundle) {
+        qty = pending.qtyBundle.qty;
+        unitHint = pending.qtyBundle.unitPrice;
+        linePrice = pending.qtyBundle.lineTotal;
+      }
 
       const qtyMatch = label.match(QTY_PREFIX_RE);
       if (qtyMatch) {
@@ -583,12 +743,15 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
         label = label.slice(qtyMatch[0].length).trim();
       }
 
+      if (isPriceLikeLabel(label) && pending.label) {
+        label = pending.label;
+      }
+
+      resetReceiptPending(pending);
+
       if (!label || label.length < 2) continue;
 
-      const resolvedPrice = resolvePriceWithPendingUnit(price, qty, unitHint);
-      const normalized = normalizeItemQty(label, resolvedPrice, qty);
-      if (!normalized.label || normalized.label === LABEL_UNREADABLE) continue;
-      parsed.push(normalized);
+      commitParsedItem(parsed, label, linePrice, qty, unitHint);
     }
 
     applyParsedItems(parsed);
