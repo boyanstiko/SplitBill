@@ -979,9 +979,20 @@ price винаги е общата сума за реда (количество 
   const summaryTotalEl = document.getElementById('summary-total');
   const summaryTotalAmountEl = document.getElementById('summary-total-amount');
   const btnCopySummary = document.getElementById('btn-copy-summary');
-  const btnDownloadSummaryText = document.getElementById('btn-download-summary-text');
   const btnDownloadSummaryImage = document.getElementById('btn-download-summary-image');
   const btnShareSummary = document.getElementById('btn-share-summary');
+
+  const personBreakdownModal = document.getElementById('person-breakdown-modal');
+  const breakdownModalBackdrop = document.getElementById('breakdown-modal-backdrop');
+  const btnCloseBreakdown = document.getElementById('btn-close-breakdown');
+  const breakdownPersonNameEl = document.getElementById('breakdown-person-name');
+  const breakdownItemsList = document.getElementById('breakdown-items-list');
+  const breakdownTotalAmountEl = document.getElementById('breakdown-total-amount');
+  const btnCopyBreakdown = document.getElementById('btn-copy-breakdown');
+  const btnDownloadBreakdownImage = document.getElementById('btn-download-breakdown-image');
+  const btnShareBreakdown = document.getElementById('btn-share-breakdown');
+
+  let openBreakdownPersonId = null;
 
   function formatPersonAmount(amount) {
     return amount === 0 ? 'Не дължи' : formatMoney(amount) + ' €';
@@ -1004,6 +1015,52 @@ price винаги е общата сума за реда (количество 
     const lines = sortedPeople.map(p => `${p.name}: ${formatPersonAmount(owes[p.id] || 0)}`);
 
     return { owes, total, sortedPeople, lines };
+  }
+
+  function computePersonBreakdown(personId) {
+    const person = state.people.find(p => p.id === personId);
+    if (!person) return null;
+
+    const entries = [];
+    let total = 0;
+
+    state.items.forEach(item => {
+      const personIds = state.assignments[item.id] || [];
+      if (!personIds.includes(personId)) return;
+      const itemTotal = getItemTotal(item);
+      const share = itemTotal / personIds.length;
+      total += share;
+      entries.push({
+        label: (item.label || '').trim() || '(без име)',
+        share,
+        itemTotal,
+        splitCount: personIds.length
+      });
+    });
+
+    return { person, entries, total };
+  }
+
+  function formatPersonBreakdownText(breakdown) {
+    const parts = [
+      'Разбивка за ' + breakdown.person.name,
+      new Date().toLocaleString('bg-BG'),
+      ''
+    ];
+    if (breakdown.entries.length === 0) {
+      parts.push('Няма разпределени артикули.');
+    } else {
+      breakdown.entries.forEach(entry => {
+        let line = entry.label + ' — ' + formatMoney(entry.share) + ' €';
+        if (entry.splitCount > 1) {
+          line += ' (÷ ' + entry.splitCount + ', от ' + formatMoney(entry.itemTotal) + ' €)';
+        }
+        parts.push(line);
+      });
+    }
+    parts.push('');
+    parts.push('Общо: ' + formatMoney(breakdown.total) + ' €');
+    return parts.join('\n');
   }
 
   function formatSummaryText(summary, includeHeader) {
@@ -1110,6 +1167,111 @@ price винаги е общата сума за реда (количество 
     });
   }
 
+  function renderPersonBreakdownCanvas(breakdown) {
+    const padding = 32;
+    const titleHeight = 44;
+    const metaHeight = 24;
+    const rowHeight = 56;
+    const totalRowHeight = 40;
+    const width = 480;
+    const rowCount = Math.max(breakdown.entries.length, 1);
+    const height = padding * 2 + titleHeight + metaHeight + rowCount * rowHeight + totalRowHeight + 16;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, width, height);
+
+    let y = padding;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('Разбивка за ' + breakdown.person.name, padding, y + 26);
+    y += titleHeight;
+
+    ctx.fillStyle = '#718096';
+    ctx.font = '14px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(new Date().toLocaleString('bg-BG'), padding, y + 14);
+    y += metaHeight + 8;
+
+    if (breakdown.entries.length === 0) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '16px Segoe UI, system-ui, sans-serif';
+      ctx.fillText('Няма разпределени артикули.', padding, y + 24);
+      y += rowHeight;
+    } else {
+      breakdown.entries.forEach(entry => {
+        const cardY = y;
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        roundRect(ctx, padding, cardY, width - padding * 2, rowHeight - 8, 10);
+        ctx.fill();
+
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '600 16px Segoe UI, system-ui, sans-serif';
+        const labelLines = wrapCanvasText(ctx, entry.label, width - padding * 2 - 120);
+        labelLines.slice(0, 2).forEach((line, i) => {
+          ctx.fillText(line, padding + 14, cardY + 22 + i * 18);
+        });
+
+        const shareText = formatMoney(entry.share) + ' €';
+        ctx.fillStyle = '#68d391';
+        ctx.font = '700 18px Segoe UI, system-ui, sans-serif';
+        const shareW = ctx.measureText(shareText).width;
+        ctx.fillText(shareText, width - padding - 14 - shareW, cardY + 24);
+
+        if (entry.splitCount > 1) {
+          ctx.fillStyle = '#718096';
+          ctx.font = '12px Segoe UI, system-ui, sans-serif';
+          ctx.fillText('÷ ' + entry.splitCount, padding + 14, cardY + 44);
+        }
+
+        y += rowHeight;
+      });
+    }
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 18px Segoe UI, system-ui, sans-serif';
+    const totalLabel = 'Общо: ';
+    const totalValue = formatMoney(breakdown.total) + ' €';
+    const totalLabelW = ctx.measureText(totalLabel).width;
+    const totalValueW = ctx.measureText(totalValue).width;
+    ctx.fillText(totalLabel, width - padding - totalValueW - totalLabelW, y + 28);
+    ctx.fillStyle = '#68d391';
+    ctx.font = '700 22px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(totalValue, width - padding - totalValueW, y + 28);
+
+    return canvas;
+  }
+
+  function wrapCanvasText(ctx, text, maxWidth) {
+    const words = String(text).split(/\s+/);
+    const lines = [];
+    let line = '';
+    words.forEach(word => {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    });
+    if (line) lines.push(line);
+    return lines.length ? lines : [text];
+  }
+
+  function personBreakdownToPngBlob(breakdown) {
+    return new Promise((resolve, reject) => {
+      const canvas = renderPersonBreakdownCanvas(breakdown);
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('PNG не се създаде.'));
+      }, 'image/png');
+    });
+  }
+
   function renderSummary() {
     const summary = computeSummary();
 
@@ -1123,12 +1285,74 @@ price винаги е общата сума за реда (количество 
       const amount = summary.owes[person.id] || 0;
       const card = document.createElement('div');
       card.className = 'summary-card' + (amount === 0 ? ' summary-zero' : '');
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('aria-label', 'Разбивка за ' + person.name);
       card.innerHTML = `
         <span class="person-name">${escapeHtml(person.name)}</span>
         <span class="person-amount">${formatPersonAmount(amount)}</span>
       `;
+      card.addEventListener('click', () => openPersonBreakdown(person.id));
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openPersonBreakdown(person.id);
+        }
+      });
       summaryList.appendChild(card);
     });
+  }
+
+  function openPersonBreakdown(personId) {
+    const breakdown = computePersonBreakdown(personId);
+    if (!breakdown || !personBreakdownModal) return;
+
+    openBreakdownPersonId = personId;
+    if (breakdownPersonNameEl) {
+      breakdownPersonNameEl.textContent = 'Разбивка за ' + breakdown.person.name;
+    }
+    if (breakdownTotalAmountEl) {
+      breakdownTotalAmountEl.textContent = formatMoney(breakdown.total);
+    }
+
+    if (breakdownItemsList) {
+      breakdownItemsList.innerHTML = '';
+      if (breakdown.entries.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'breakdown-empty';
+        empty.textContent = 'Няма разпределени артикули за този човек.';
+        breakdownItemsList.appendChild(empty);
+      } else {
+        breakdown.entries.forEach(entry => {
+          const li = document.createElement('li');
+          li.className = 'breakdown-item';
+          const splitHint = entry.splitCount > 1
+            ? `<span class="breakdown-item-split">÷ ${entry.splitCount} (от ${formatMoney(entry.itemTotal)} €)</span>`
+            : '';
+          li.innerHTML = `
+            <span class="breakdown-item-label">${escapeHtml(entry.label)}${splitHint}</span>
+            <span class="breakdown-item-share">${formatMoney(entry.share)} €</span>
+          `;
+          breakdownItemsList.appendChild(li);
+        });
+      }
+    }
+
+    personBreakdownModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    if (btnShareBreakdown && navigator.share) btnShareBreakdown.classList.remove('hidden');
+  }
+
+  function closePersonBreakdown() {
+    if (!personBreakdownModal) return;
+    personBreakdownModal.classList.add('hidden');
+    document.body.style.overflow = '';
+    openBreakdownPersonId = null;
+  }
+
+  function getOpenPersonBreakdown() {
+    if (openBreakdownPersonId == null) return null;
+    return computePersonBreakdown(openBreakdownPersonId);
   }
 
   function showToast(message) {
@@ -1151,13 +1375,6 @@ price винаги е общата сума за реда (количество 
     return Promise.reject(new Error('clipboard unavailable'));
   }
 
-  function downloadSummaryText() {
-    const text = formatSummaryText(computeSummary());
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    downloadBlob(blob, 'razdeli-smetka.txt');
-    showToast('Свалено!');
-  }
-
   function downloadSummaryImage() {
     const summary = computeSummary();
     summaryToPngBlob(summary)
@@ -1170,7 +1387,7 @@ price винаги е общата сума за реда (количество 
 
   async function shareSummary() {
     if (!navigator.share) {
-      showToast('Споделянето не се поддържа — свали текста или снимката.');
+      showToast('Споделянето не се поддържа — свали снимката.');
       return;
     }
     const summary = computeSummary();
@@ -1206,9 +1423,77 @@ price винаги е общата сума за реда (количество 
     });
   }
 
-  if (btnDownloadSummaryText) {
-    btnDownloadSummaryText.addEventListener('click', downloadSummaryText);
+  function copyPersonBreakdown() {
+    const breakdown = getOpenPersonBreakdown();
+    if (!breakdown) return;
+    const text = formatPersonBreakdownText(breakdown);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast('Копирано!')).catch(() => showToast('Копирането не успя.'));
+    } else {
+      showToast('Копирането не се поддържа в този браузър.');
+    }
   }
+
+  function downloadPersonBreakdownImage() {
+    const breakdown = getOpenPersonBreakdown();
+    if (!breakdown) return;
+    const safeName = breakdown.person.name.replace(/[^\w\u0400-\u04FF]+/g, '-').replace(/^-|-$/g, '') || 'chovek';
+    personBreakdownToPngBlob(breakdown)
+      .then((blob) => {
+        downloadBlob(blob, 'razbivka-' + safeName + '.png');
+        showToast('Свалено!');
+      })
+      .catch(() => showToast('Снимката не се създаде.'));
+  }
+
+  async function sharePersonBreakdown() {
+    const breakdown = getOpenPersonBreakdown();
+    if (!breakdown) return;
+    if (!navigator.share) {
+      showToast('Споделянето не се поддържа — свали снимката.');
+      return;
+    }
+    const text = formatPersonBreakdownText(breakdown);
+    const safeName = breakdown.person.name.replace(/[^\w\u0400-\u04FF]+/g, '-').replace(/^-|-$/g, '') || 'chovek';
+    try {
+      const pngBlob = await personBreakdownToPngBlob(breakdown);
+      const file = new File([pngBlob], 'razbivka-' + safeName + '.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: 'Разбивка за ' + breakdown.person.name,
+          text,
+          files: [file]
+        });
+      } else {
+        await navigator.share({ title: 'Разбивка за ' + breakdown.person.name, text });
+      }
+      showToast('Споделено!');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      try {
+        await navigator.share({ title: 'Разбивка за ' + breakdown.person.name, text });
+        showToast('Споделено!');
+      } catch (err2) {
+        if (err2 && err2.name === 'AbortError') return;
+        showToast('Споделянето не успя.');
+      }
+    }
+  }
+
+  if (btnCloseBreakdown) btnCloseBreakdown.addEventListener('click', closePersonBreakdown);
+  if (breakdownModalBackdrop) breakdownModalBackdrop.addEventListener('click', closePersonBreakdown);
+  if (btnCopyBreakdown) btnCopyBreakdown.addEventListener('click', copyPersonBreakdown);
+  if (btnDownloadBreakdownImage) btnDownloadBreakdownImage.addEventListener('click', downloadPersonBreakdownImage);
+  if (btnShareBreakdown) {
+    if (navigator.share) btnShareBreakdown.classList.remove('hidden');
+    btnShareBreakdown.addEventListener('click', () => { sharePersonBreakdown(); });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && personBreakdownModal && !personBreakdownModal.classList.contains('hidden')) {
+      closePersonBreakdown();
+    }
+  });
 
   if (btnDownloadSummaryImage) {
     btnDownloadSummaryImage.addEventListener('click', downloadSummaryImage);

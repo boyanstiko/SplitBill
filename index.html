@@ -93,9 +93,9 @@
         <h2>5. Кой колко дължи</h2>
         <p id="summary-total" class="summary-total hidden">Обща сума на сметката: <strong id="summary-total-amount">0.00</strong> €</p>
         <div id="summary-list" class="summary-list"></div>
+        <p class="hint summary-hint">Докосни човек, за да видиш разбивка по артикули.</p>
         <div class="summary-export">
           <button type="button" id="btn-copy-summary" class="btn btn-secondary">Копирай</button>
-          <button type="button" id="btn-download-summary-text" class="btn btn-secondary">Свали текст</button>
           <button type="button" id="btn-download-summary-image" class="btn btn-secondary">Свали снимка</button>
           <button type="button" id="btn-share-summary" class="btn btn-secondary hidden">Сподели</button>
         </div>
@@ -105,6 +105,23 @@
         </div>
       </section>
     </main>
+
+    <div id="person-breakdown-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="breakdown-person-name">
+      <div class="modal-backdrop" id="breakdown-modal-backdrop"></div>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3 id="breakdown-person-name">Разбивка</h3>
+          <button type="button" id="btn-close-breakdown" class="btn btn-danger btn-small" aria-label="Затвори">✕</button>
+        </div>
+        <ul id="breakdown-items-list" class="breakdown-items-list"></ul>
+        <p class="breakdown-total">Общо: <strong id="breakdown-total-amount">0.00</strong> €</p>
+        <div class="breakdown-export">
+          <button type="button" id="btn-copy-breakdown" class="btn btn-secondary">Копирай</button>
+          <button type="button" id="btn-download-breakdown-image" class="btn btn-secondary">Свали снимка</button>
+          <button type="button" id="btn-share-breakdown" class="btn btn-secondary hidden">Сподели</button>
+        </div>
+      </div>
+    </div>
 
     <footer class="footer">
       <p>„Разчети снимка“ — само в браузъра. „С AI“ — изпраща снимката към Google Gemini.</p>
