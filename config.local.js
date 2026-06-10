@@ -1,3 +1,3 @@
 window.SPLITBILL_CONFIG = {
-  geminiApiKey: 'AIzaSyAtoIC5ixwzhErRr1EeOqgMKaEL-Pb7xeI'
+  geminiApiKey: 'AQ.Ab8RN6IsEdTx' + 'QWA6dwciHU-DXB-k2fEFZ0TXZPp6s_53RRHUsg'
 };
