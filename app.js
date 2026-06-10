@@ -96,7 +96,7 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
   }
 
   function getTotalSum() {
-    return state.items.reduce((sum, it) => sum + (Number(it.price) || 0) * (it.qty != null ? it.qty : 1), 0);
+    return state.items.reduce((sum, it) => sum + (Number(it.price) || 0), 0);
   }
 
   function formatMoney(n) {
@@ -560,7 +560,7 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
   const btnToSummary = document.getElementById('btn-to-summary');
 
   function getItemTotal(item) {
-    return (Number(item.price) || 0) * (item.qty != null ? item.qty : 1);
+    return Number(item.price) || 0;
   }
 
   function renderAssign() {
