@@ -12,6 +12,7 @@
 Пропусни: обща сума, ДДС, бон номер, плащане, касиер, фирма, адрес, дата/час без артикул.
 Цените са в EUR (€) или BGN (лв) — върни числото както е на бележката.
 qty е брой (по подразбиране 1). Ако има "2 x Нещо" — qty=2.
+Ако на реда има количество × единична цена (напр. 3x4.40), price е общата сума за реда.
 Върни само валиден JSON по схемата.`;
 
   const LABEL_UNREADABLE = 'НЕ СЕ ЧЕТЕ';
@@ -49,7 +50,11 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
       if (!raw) return;
       const data = JSON.parse(raw);
       if (data.items && Array.isArray(data.items)) {
-        state.items = data.items.map(it => ({ ...it, qty: it.qty != null ? it.qty : 1 }));
+        state.items = data.items.map(it => {
+          const item = { ...it, qty: it.qty != null ? it.qty : 1 };
+          applyQtyNormalization(item);
+          return item;
+        });
       }
       if (data.people && Array.isArray(data.people)) state.people = data.people;
       if (data.assignments && typeof data.assignments === 'object') state.assignments = data.assignments;
@@ -101,6 +106,86 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
 
   function formatMoney(n) {
     return Number(n).toFixed(2);
+  }
+
+  const INLINE_QTY_PRICE_RE = /(\d+)\s*[xXх×*]\s*([\d]+[.,][\d]{2})\b/g;
+  const QTY_PREFIX_RE = /^(\d+)(?:[.,]\d+)?\s*[xXх×*]\s+/;
+  const QTY_SUFFIX_RE = /\s*×\d+$/;
+  const QTY_PRICE_EXPR_RE = /^(\d+)\s*[xXх×*]\s*([\d]+[.,][\d]{2})$/;
+
+  function parseDecimal(s) {
+    return parseFloat(String(s).replace(/\s/g, '').replace(',', '.'));
+  }
+
+  /** Ако има количество — добавя „×N“ в името и умножава цената до редовата сума. */
+  function normalizeItemQty(label, price, qty) {
+    let name = String(label || '').trim();
+    let p = Number(price);
+    qty = Math.max(1, parseInt(qty, 10) || 1);
+    if (isNaN(p) || p <= 0) return { label: name, price, qty };
+
+    let unitPrice = null;
+    let detectedQty = qty;
+
+    let inlineMatch = null;
+    let m;
+    while ((m = INLINE_QTY_PRICE_RE.exec(name)) !== null) inlineMatch = m;
+    if (inlineMatch) {
+      detectedQty = Math.max(detectedQty, parseInt(inlineMatch[1], 10) || 1);
+      unitPrice = parseDecimal(inlineMatch[2]);
+      name = name.replace(inlineMatch[0], '').replace(/\s+/g, ' ').trim();
+    }
+
+    name = name.replace(QTY_SUFFIX_RE, '').trim();
+
+    if (detectedQty <= 1) return { label: name, price: formatMoney(p), qty: 1 };
+
+    const expectedTotal = unitPrice != null ? unitPrice * detectedQty : null;
+    if (expectedTotal != null) {
+      if (Math.abs(p - unitPrice) < 0.02) p = expectedTotal;
+      else if (Math.abs(p - expectedTotal) >= 0.02) p = expectedTotal;
+    } else if (!looksLikeLineTotal(p, detectedQty)) {
+      p = p * detectedQty;
+    }
+
+    if (!name || name.length < 2) name = LABEL_UNREADABLE;
+    name = name + ' ×' + detectedQty;
+    return { label: name, price: formatMoney(p), qty: 1 };
+  }
+
+  function looksLikeLineTotal(total, qty) {
+    if (qty <= 1) return true;
+    const perUnit = total / qty;
+    const roundedUnit = Math.round(perUnit * 100) / 100;
+    return Math.abs(roundedUnit * qty - total) < 0.02;
+  }
+
+  function tryParseQtyPriceExpr(str) {
+    const match = String(str || '').trim().match(QTY_PRICE_EXPR_RE);
+    if (!match) return null;
+    const qty = parseInt(match[1], 10);
+    const unitPrice = parseDecimal(match[2]);
+    if (!qty || qty < 1 || isNaN(unitPrice) || unitPrice <= 0) return null;
+    return { qty, unitPrice };
+  }
+
+  function applyQtyNormalization(item) {
+    const expr = tryParseQtyPriceExpr(item.price);
+    if (expr) {
+      const normalized = normalizeItemQty(item.label, expr.unitPrice * expr.qty, expr.qty);
+      item.label = normalized.label;
+      item.price = normalized.price;
+      item.qty = normalized.qty;
+      return true;
+    }
+    const normalized = normalizeItemQty(item.label, item.price, item.qty);
+    if (normalized.label !== item.label || normalized.price !== item.price || normalized.qty !== item.qty) {
+      item.label = normalized.label;
+      item.price = normalized.price;
+      item.qty = normalized.qty;
+      return true;
+    }
+    return false;
   }
 
   // ----- Upload & OCR -----
@@ -287,12 +372,19 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
       return it.label && !isNaN(price) && price > 0 && price <= MAX_PRICE;
     });
     if (valid.length > 0) {
-      state.items = valid.map(it => ({
-        id: nextItemId++,
-        label: String(it.label).trim(),
-        price: formatMoney(Number(it.price)),
-        qty: Math.max(1, parseInt(it.qty, 10) || 1)
-      }));
+      state.items = valid.map(it => {
+        const normalized = normalizeItemQty(
+          String(it.label).trim(),
+          Number(it.price),
+          Math.max(1, parseInt(it.qty, 10) || 1)
+        );
+        return {
+          id: nextItemId++,
+          label: normalized.label,
+          price: normalized.price,
+          qty: normalized.qty
+        };
+      });
     } else {
       state.items = [{ id: nextItemId++, label: '', price: '', qty: 1 }];
     }
@@ -387,6 +479,34 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
     return RECEIPT_SKIP_PATTERNS.some(r => r.test(t));
   }
 
+  function isQtyOnlyLine(line) {
+    return /^\d+\s*[xXх×*]\s*$/.test(line.trim());
+  }
+
+  function matchQtyUnitLine(line) {
+    return line.trim().match(/^(\d+)\s*[xXх×*]\s*([\d]+[.,][\d]{2})\s*$/);
+  }
+
+  function isPriceOnlyLine(line) {
+    return /^[\d\s]+[.,][\d]{2}\s*(?:€|eur|лв|лв\.|bgn)?$/i.test(line.trim());
+  }
+
+  function isProductNameOnlyLine(line) {
+    const t = line.trim();
+    if (!t || t.length < 2) return false;
+    if (isQtyOnlyLine(t) || matchQtyUnitLine(t)) return false;
+    if (isPriceOnlyLine(t)) return false;
+    return !findLastPriceOnLine(t);
+  }
+
+  function resolvePriceWithPendingUnit(price, qty, unitPrice) {
+    if (unitPrice == null) return price;
+    const expected = unitPrice * qty;
+    if (Math.abs(price - expected) < 0.02) return price;
+    if (Math.abs(price - unitPrice) < 0.02) return expected;
+    return price;
+  }
+
   /** Намира последната сума във формата число с 2 десетични (и по избор интервали за хиляди). */
   function findLastPriceOnLine(line) {
     const regex = /([\d\s]+)[.,](\d{2})\s*(?:€|eur|лв|лв\.|bgn)?/gi;
@@ -406,23 +526,69 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
   function parseReceiptText(text) {
     const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const parsed = [];
-    const qtyPrefixRegex = /^(\d+)(?:[.,]\d+)?\s*[xX]\s+/;
+    let pendingQty = 1;
+    let pendingUnitPrice = null;
+    let pendingLabel = '';
 
     for (const line of lines) {
       if (isReceiptSkipLine(line)) continue;
+
+      if (isQtyOnlyLine(line)) {
+        pendingQty = Math.max(1, parseInt(line, 10) || 1);
+        continue;
+      }
+
+      const qtyUnitMatch = matchQtyUnitLine(line);
+      if (qtyUnitMatch) {
+        pendingQty = Math.max(1, parseInt(qtyUnitMatch[1], 10) || 1);
+        pendingUnitPrice = parseDecimal(qtyUnitMatch[2]);
+        continue;
+      }
+
+      if (isProductNameOnlyLine(line)) {
+        pendingLabel = pendingLabel ? pendingLabel + ' ' + line.trim() : line.trim();
+        continue;
+      }
+
       const match = findLastPriceOnLine(line);
       if (!match) continue;
       const price = parsePriceFromMatch(match);
       if (isNaN(price) || price <= 0 || price > MAX_PRICE) continue;
+
       let label = line.slice(0, match.index).trim();
-      let qty = 1;
-      const qtyMatch = label.match(qtyPrefixRegex);
+
+      if (!label) {
+        if (isPriceOnlyLine(line)) {
+          if (!pendingLabel) continue;
+          label = pendingLabel;
+          pendingLabel = '';
+        } else if (pendingLabel) {
+          label = pendingLabel;
+          pendingLabel = '';
+        } else {
+          continue;
+        }
+      } else {
+        pendingLabel = '';
+      }
+
+      let qty = pendingQty;
+      pendingQty = 1;
+      const unitHint = pendingUnitPrice;
+      pendingUnitPrice = null;
+
+      const qtyMatch = label.match(QTY_PREFIX_RE);
       if (qtyMatch) {
         qty = Math.max(1, parseInt(qtyMatch[1], 10) || 1);
         label = label.slice(qtyMatch[0].length).trim();
       }
-      if (!label || label.length < 2) label = LABEL_UNREADABLE;
-      parsed.push({ label, price, qty });
+
+      if (!label || label.length < 2) continue;
+
+      const resolvedPrice = resolvePriceWithPendingUnit(price, qty, unitHint);
+      const normalized = normalizeItemQty(label, resolvedPrice, qty);
+      if (!normalized.label || normalized.label === LABEL_UNREADABLE) continue;
+      parsed.push(normalized);
     }
 
     applyParsedItems(parsed);
@@ -447,8 +613,20 @@ qty е брой (по подразбиране 1). Ако има "2 x Нещо" 
         <button type="button" class="btn btn-duplicate btn-small btn-duplicate-item" aria-label="Дублирай">⎘</button>
         <button type="button" class="btn btn-danger btn-small btn-remove-item" aria-label="Премахни">✕</button>
       `;
-      li.querySelector('.item-label').addEventListener('input', (e) => { item.label = e.target.value; saveState(); });
-      li.querySelector('.item-price').addEventListener('input', (e) => { item.price = e.target.value; updateTotal(); saveState(); });
+      const labelInput = li.querySelector('.item-label');
+      const priceInput = li.querySelector('.item-price');
+      labelInput.addEventListener('input', (e) => { item.label = e.target.value; saveState(); });
+      priceInput.addEventListener('input', (e) => { item.price = e.target.value; updateTotal(); saveState(); });
+      const onQtyBlur = () => {
+        if (applyQtyNormalization(item)) {
+          labelInput.value = item.label;
+          priceInput.value = item.price;
+          updateTotal();
+          saveState();
+        }
+      };
+      labelInput.addEventListener('blur', onQtyBlur);
+      priceInput.addEventListener('blur', onQtyBlur);
       li.querySelector('.btn-duplicate-item').addEventListener('click', () => {
         const copy = { id: nextItemId++, label: item.label, price: item.price, qty: 1 };
         state.items.splice(state.items.indexOf(item) + 1, 0, copy);
