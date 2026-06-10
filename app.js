@@ -979,8 +979,15 @@ price винаги е общата сума за реда (количество 
   const summaryTotalEl = document.getElementById('summary-total');
   const summaryTotalAmountEl = document.getElementById('summary-total-amount');
   const btnCopySummary = document.getElementById('btn-copy-summary');
+  const btnDownloadSummaryText = document.getElementById('btn-download-summary-text');
+  const btnDownloadSummaryImage = document.getElementById('btn-download-summary-image');
+  const btnShareSummary = document.getElementById('btn-share-summary');
 
-  function renderSummary() {
+  function formatPersonAmount(amount) {
+    return amount === 0 ? 'Не дължи' : formatMoney(amount) + ' €';
+  }
+
+  function computeSummary() {
     const owes = {};
     state.people.forEach(p => { owes[p.id] = 0; });
 
@@ -993,20 +1000,132 @@ price винаги е общата сума за реда (количество 
     });
 
     const total = getTotalSum();
+    const sortedPeople = [...state.people].sort((a, b) => (owes[b.id] || 0) - (owes[a.id] || 0));
+    const lines = sortedPeople.map(p => `${p.name}: ${formatPersonAmount(owes[p.id] || 0)}`);
+
+    return { owes, total, sortedPeople, lines };
+  }
+
+  function formatSummaryText(summary, includeHeader) {
+    const parts = [];
+    if (includeHeader !== false) {
+      parts.push('Раздели сметката');
+      parts.push('Обща сума: ' + formatMoney(summary.total) + ' €');
+      parts.push(new Date().toLocaleString('bg-BG'));
+      parts.push('');
+    }
+    parts.push(...summary.lines);
+    return parts.join('\n');
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function renderSummaryImageCanvas(summary) {
+    const padding = 32;
+    const lineHeight = 36;
+    const titleHeight = 44;
+    const metaHeight = 28;
+    const rowHeight = 52;
+    const width = 480;
+    const height = padding * 2 + titleHeight + metaHeight + metaHeight + summary.sortedPeople.length * rowHeight + 16;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, width, height);
+
+    let y = padding;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 26px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('Раздели сметката', padding, y + 28);
+    y += titleHeight;
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '16px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('Обща сума: ' + formatMoney(summary.total) + ' €', padding, y + 18);
+    y += metaHeight;
+
+    ctx.fillStyle = '#718096';
+    ctx.font = '14px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(new Date().toLocaleString('bg-BG'), padding, y + 16);
+    y += metaHeight + 8;
+
+    summary.sortedPeople.forEach(person => {
+      const amount = summary.owes[person.id] || 0;
+      const cardY = y;
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      roundRect(ctx, padding, cardY, width - padding * 2, rowHeight - 8, 10);
+      ctx.fill();
+
+      ctx.fillStyle = '#e8e8e8';
+      ctx.font = '600 18px Segoe UI, system-ui, sans-serif';
+      ctx.fillText(person.name, padding + 16, cardY + 30);
+
+      const amountText = formatPersonAmount(amount);
+      ctx.fillStyle = amount === 0 ? '#94a3b8' : '#68d391';
+      ctx.font = (amount === 0 ? '500 ' : '700 ') + '20px Segoe UI, system-ui, sans-serif';
+      const textWidth = ctx.measureText(amountText).width;
+      ctx.fillText(amountText, width - padding - 16 - textWidth, cardY + 30);
+
+      y += rowHeight;
+    });
+
+    return canvas;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function summaryToPngBlob(summary) {
+    return new Promise((resolve, reject) => {
+      const canvas = renderSummaryImageCanvas(summary);
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('PNG не се създаде.'));
+      }, 'image/png');
+    });
+  }
+
+  function renderSummary() {
+    const summary = computeSummary();
+
     if (summaryTotalEl) {
       summaryTotalEl.classList.remove('hidden');
-      if (summaryTotalAmountEl) summaryTotalAmountEl.textContent = formatMoney(total);
+      if (summaryTotalAmountEl) summaryTotalAmountEl.textContent = formatMoney(summary.total);
     }
 
-    const sorted = [...state.people].sort((a, b) => (owes[b.id] || 0) - (owes[a.id] || 0));
     summaryList.innerHTML = '';
-    sorted.forEach(person => {
-      const amount = owes[person.id] || 0;
+    summary.sortedPeople.forEach(person => {
+      const amount = summary.owes[person.id] || 0;
       const card = document.createElement('div');
       card.className = 'summary-card' + (amount === 0 ? ' summary-zero' : '');
       card.innerHTML = `
         <span class="person-name">${escapeHtml(person.name)}</span>
-        <span class="person-amount">${amount === 0 ? 'Не дължи' : formatMoney(amount) + ' €'}</span>
+        <span class="person-amount">${formatPersonAmount(amount)}</span>
       `;
       summaryList.appendChild(card);
     });
@@ -1023,25 +1142,81 @@ price винаги е общата сума за реда (количество 
     setTimeout(() => el.remove(), 2500);
   }
 
+  function copySummaryText() {
+    const text = formatSummaryText(computeSummary());
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(() => showToast('Копирано!'));
+    }
+    showToast('Копирането не се поддържа в този браузър.');
+    return Promise.reject(new Error('clipboard unavailable'));
+  }
+
+  function downloadSummaryText() {
+    const text = formatSummaryText(computeSummary());
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    downloadBlob(blob, 'razdeli-smetka.txt');
+    showToast('Свалено!');
+  }
+
+  function downloadSummaryImage() {
+    const summary = computeSummary();
+    summaryToPngBlob(summary)
+      .then((blob) => {
+        downloadBlob(blob, 'razdeli-smetka.png');
+        showToast('Свалено!');
+      })
+      .catch(() => showToast('Снимката не се създаде.'));
+  }
+
+  async function shareSummary() {
+    if (!navigator.share) {
+      showToast('Споделянето не се поддържа — свали текста или снимката.');
+      return;
+    }
+    const summary = computeSummary();
+    const text = formatSummaryText(summary);
+    try {
+      const pngBlob = await summaryToPngBlob(summary);
+      const file = new File([pngBlob], 'razdeli-smetka.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: 'Раздели сметката',
+          text,
+          files: [file]
+        });
+      } else {
+        await navigator.share({ title: 'Раздели сметката', text });
+      }
+      showToast('Споделено!');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      try {
+        await navigator.share({ title: 'Раздели сметката', text });
+        showToast('Споделено!');
+      } catch (err2) {
+        if (err2 && err2.name === 'AbortError') return;
+        showToast('Споделянето не успя.');
+      }
+    }
+  }
+
   if (btnCopySummary) {
     btnCopySummary.addEventListener('click', () => {
-      const owes = {};
-      state.people.forEach(p => { owes[p.id] = 0; });
-      state.items.forEach(item => {
-        const total = getItemTotal(item);
-        const personIds = state.assignments[item.id] || [];
-        if (personIds.length === 0) return;
-        const perPerson = total / personIds.length;
-        personIds.forEach(pid => { owes[pid] = (owes[pid] || 0) + perPerson; });
-      });
-      const lines = state.people.map(p => `${p.name}: ${owes[p.id] === 0 ? 'Не дължи' : formatMoney(owes[p.id]) + ' €'}`);
-      const text = lines.join('\n');
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => showToast('Копирано!')).catch(() => showToast('Копирането не успя.'));
-      } else {
-        showToast('Копирането не се поддържа в този браузър.');
-      }
+      copySummaryText().catch(() => {});
     });
+  }
+
+  if (btnDownloadSummaryText) {
+    btnDownloadSummaryText.addEventListener('click', downloadSummaryText);
+  }
+
+  if (btnDownloadSummaryImage) {
+    btnDownloadSummaryImage.addEventListener('click', downloadSummaryImage);
+  }
+
+  if (btnShareSummary) {
+    if (navigator.share) btnShareSummary.classList.remove('hidden');
+    btnShareSummary.addEventListener('click', () => { shareSummary(); });
   }
 
   btnBackAssign.addEventListener('click', () => { showStep('step-assign'); renderAssign(); saveState(); });

@@ -416,6 +416,17 @@ body {
 .summary-card .person-name { font-weight: 600; font-size: 1.1rem; }
 .summary-card .person-amount { color: #68d391; font-size: 1.25rem; font-weight: 700; }
 
+.summary-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.summary-export .btn {
+  flex: 1 1 calc(50% - 0.25rem);
+  min-width: 0;
+}
+
 /* Footer */
 .footer {
   text-align: center;
