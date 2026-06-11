@@ -236,6 +236,134 @@ price винаги е общата сума за реда (количество 
   const btnScanAi = document.getElementById('btn-scan-ai');
   const btnSkipScan = document.getElementById('btn-skip-scan');
   const btnChangePhoto = document.getElementById('btn-change-photo');
+  const btnCropPhoto = document.getElementById('btn-crop-photo');
+  const cropModal = document.getElementById('crop-modal');
+  const cropImage = document.getElementById('crop-image');
+  const cropModalBackdrop = document.getElementById('crop-modal-backdrop');
+  const btnCloseCrop = document.getElementById('btn-close-crop');
+  const btnCropApply = document.getElementById('btn-crop-apply');
+  const btnCropSkip = document.getElementById('btn-crop-skip');
+  const btnCropCancel = document.getElementById('btn-crop-cancel');
+
+  let cropperInstance = null;
+  let pendingCropDataUrl = null;
+  let cropFromPreview = false;
+
+  function destroyCropper() {
+    if (cropperInstance) {
+      cropperInstance.destroy();
+      cropperInstance = null;
+    }
+  }
+
+  function closeCropModal() {
+    destroyCropper();
+    if (cropModal) cropModal.classList.add('hidden');
+    if (cropImage) cropImage.src = '';
+    pendingCropDataUrl = null;
+    cropFromPreview = false;
+  }
+
+  function setImagePreview(dataUrl) {
+    state.imageDataUrl = dataUrl;
+    const img = document.createElement('img');
+    img.src = state.imageDataUrl;
+    imagePreview.innerHTML = '';
+    imagePreview.appendChild(img);
+    imagePreview.classList.remove('hidden');
+    btnScan.classList.remove('hidden');
+    if (btnScanAi) btnScanAi.classList.remove('hidden');
+    btnSkipScan.classList.remove('hidden');
+    if (btnChangePhoto) btnChangePhoto.classList.remove('hidden');
+    if (btnCropPhoto) btnCropPhoto.classList.remove('hidden');
+    uploadZone.classList.add('hidden');
+    saveState();
+  }
+
+  function initCropper() {
+    if (!cropImage || typeof Cropper === 'undefined') return;
+    destroyCropper();
+    cropperInstance = new Cropper(cropImage, {
+      viewMode: 1,
+      dragMode: 'move',
+      aspectRatio: NaN,
+      autoCropArea: 0.85,
+      responsive: true,
+      restore: false,
+      guides: true,
+      center: true,
+      highlight: true,
+      cropBoxMovable: true,
+      cropBoxResizable: true,
+      toggleDragModeOnDblclick: false
+    });
+  }
+
+  function openCropModal(dataUrl, fromPreview) {
+    if (!cropModal || !cropImage) {
+      setImagePreview(dataUrl);
+      return;
+    }
+    cropFromPreview = !!fromPreview;
+    pendingCropDataUrl = dataUrl;
+    cropModal.classList.remove('hidden');
+    destroyCropper();
+    cropImage.onload = () => {
+      cropImage.onload = null;
+      initCropper();
+    };
+    cropImage.src = dataUrl;
+    if (cropImage.complete) {
+      cropImage.onload = null;
+      initCropper();
+    }
+  }
+
+  function applyCropResult(dataUrl) {
+    closeCropModal();
+    setImagePreview(dataUrl);
+  }
+
+  function applyCropSelection() {
+    if (!cropperInstance) {
+      if (pendingCropDataUrl) applyCropResult(pendingCropDataUrl);
+      return;
+    }
+    const canvas = cropperInstance.getCroppedCanvas({
+      maxWidth: 4096,
+      maxHeight: 4096,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high'
+    });
+    if (!canvas) {
+      if (pendingCropDataUrl) applyCropResult(pendingCropDataUrl);
+      return;
+    }
+    applyCropResult(canvas.toDataURL('image/jpeg', 0.92));
+  }
+
+  function cancelCropSelection() {
+    const wasRecrop = cropFromPreview;
+    closeCropModal();
+    if (wasRecrop) return;
+    fileInput.value = '';
+    uploadZone.classList.remove('hidden');
+  }
+
+  if (btnCropApply) btnCropApply.addEventListener('click', applyCropSelection);
+  if (btnCropSkip) {
+    btnCropSkip.addEventListener('click', () => {
+      if (pendingCropDataUrl) applyCropResult(pendingCropDataUrl);
+    });
+  }
+  if (btnCropCancel) btnCropCancel.addEventListener('click', cancelCropSelection);
+  if (btnCloseCrop) btnCloseCrop.addEventListener('click', cancelCropSelection);
+  if (cropModalBackdrop) cropModalBackdrop.addEventListener('click', cancelCropSelection);
+  if (btnCropPhoto) {
+    btnCropPhoto.addEventListener('click', () => {
+      if (state.imageDataUrl) openCropModal(state.imageDataUrl, true);
+    });
+  }
 
   uploadZone.addEventListener('click', () => fileInput.click());
   uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
@@ -253,25 +381,13 @@ price винаги е общата сума за реда (количество 
 
   function handleFile(file) {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      state.imageDataUrl = e.target.result;
-      const img = document.createElement('img');
-      img.src = state.imageDataUrl;
-      imagePreview.innerHTML = '';
-      imagePreview.appendChild(img);
-      imagePreview.classList.remove('hidden');
-      btnScan.classList.remove('hidden');
-      if (btnScanAi) btnScanAi.classList.remove('hidden');
-      btnSkipScan.classList.remove('hidden');
-      if (btnChangePhoto) btnChangePhoto.classList.remove('hidden');
-      uploadZone.classList.add('hidden');
-      saveState();
-    };
+    reader.onload = (e) => openCropModal(e.target.result);
     reader.readAsDataURL(file);
   }
 
   if (btnChangePhoto) {
     btnChangePhoto.addEventListener('click', () => {
+      closeCropModal();
       state.imageDataUrl = null;
       imagePreview.innerHTML = '';
       imagePreview.classList.add('hidden');
@@ -279,6 +395,7 @@ price винаги е общата сума за реда (количество 
       if (btnScanAi) btnScanAi.classList.add('hidden');
       btnSkipScan.classList.add('hidden');
       btnChangePhoto.classList.add('hidden');
+      if (btnCropPhoto) btnCropPhoto.classList.add('hidden');
       uploadZone.classList.remove('hidden');
       fileInput.value = '';
       saveState();
@@ -1490,7 +1607,12 @@ price винаги е общата сума за реда (количество 
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && personBreakdownModal && !personBreakdownModal.classList.contains('hidden')) {
+    if (e.key !== 'Escape') return;
+    if (cropModal && !cropModal.classList.contains('hidden')) {
+      cancelCropSelection();
+      return;
+    }
+    if (personBreakdownModal && !personBreakdownModal.classList.contains('hidden')) {
       closePersonBreakdown();
     }
   });
@@ -1506,6 +1628,7 @@ price винаги е общата сума за реда (количество 
 
   btnBackAssign.addEventListener('click', () => { showStep('step-assign'); renderAssign(); saveState(); });
   btnNewBill.addEventListener('click', () => {
+    closeCropModal();
     state.imageDataUrl = null;
     state.items = [];
     state.people = [];
@@ -1517,6 +1640,8 @@ price винаги е общата сума за реда (количество 
     btnScan.classList.add('hidden');
     if (btnScanAi) btnScanAi.classList.add('hidden');
     btnSkipScan.classList.add('hidden');
+    if (btnChangePhoto) btnChangePhoto.classList.add('hidden');
+    if (btnCropPhoto) btnCropPhoto.classList.add('hidden');
     uploadZone.classList.remove('hidden');
     fileInput.value = '';
     try { localStorage.removeItem(STATE_KEY); } catch (e) {}

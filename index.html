@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Раздели сметката</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
 </head>
 <body>
   <div class="app">
@@ -37,6 +39,7 @@
         <div id="image-preview" class="image-preview hidden"></div>
         <div class="step-actions">
           <button type="button" id="btn-change-photo" class="btn btn-secondary btn-small hidden">Смяна на снимка</button>
+          <button type="button" id="btn-crop-photo" class="btn btn-secondary btn-small hidden">Кропни</button>
           <button type="button" id="btn-scan" class="btn btn-secondary hidden">Разчети снимка</button>
           <button type="button" id="btn-scan-ai" class="btn btn-primary hidden">Разчети снимка с AI</button>
           <button type="button" id="btn-skip-scan" class="btn btn-secondary hidden">Въведи ръчно</button>
@@ -105,6 +108,25 @@
         </div>
       </section>
     </main>
+
+    <div id="crop-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="crop-modal-title">
+      <div class="modal-backdrop" id="crop-modal-backdrop"></div>
+      <div class="modal-panel crop-modal-panel">
+        <div class="modal-header">
+          <h3 id="crop-modal-title">Изрежи бележката</h3>
+          <button type="button" id="btn-close-crop" class="btn btn-danger btn-small" aria-label="Затвори">✕</button>
+        </div>
+        <p class="hint crop-hint">Приближи рамката около бележката. Можеш да пропуснеш кропа, ако снимката е добра.</p>
+        <div class="crop-container">
+          <img id="crop-image" src="" alt="Кроп на снимка">
+        </div>
+        <div class="crop-actions">
+          <button type="button" id="btn-crop-apply" class="btn btn-primary">Готово</button>
+          <button type="button" id="btn-crop-skip" class="btn btn-secondary">Без кроп</button>
+          <button type="button" id="btn-crop-cancel" class="btn btn-secondary">Отказ</button>
+        </div>
+      </div>
+    </div>
 
     <div id="person-breakdown-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="breakdown-person-name">
       <div class="modal-backdrop" id="breakdown-modal-backdrop"></div>

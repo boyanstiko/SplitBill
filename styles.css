@@ -436,6 +436,36 @@ body {
   min-width: 0;
 }
 
+/* Crop modal */
+.crop-modal-panel {
+  max-height: 92vh;
+  max-height: 92dvh;
+}
+.crop-hint {
+  margin: 0 0 0.75rem;
+}
+.crop-container {
+  width: 100%;
+  height: min(55dvh, 420px);
+  background: #0d0d0d;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+.crop-container img {
+  display: block;
+  max-width: 100%;
+}
+.crop-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.crop-actions .btn {
+  width: 100%;
+  min-height: 48px;
+}
+
 /* Person breakdown modal */
 .modal {
   position: fixed;
