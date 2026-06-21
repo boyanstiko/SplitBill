@@ -18,7 +18,7 @@ B) "2x" или "2 x 4.40" и сума 8.80, после името
 C) "2x", после име, после сума
 За всеки артикул: label=името, qty=броят, price=редовата сума (8.80), НЕ единичната (4.40).
 
-qty е брой (по подразбиране 1). "2 x 4.40" означава qty=2 — задължително го попълни.
+qty е брой (по подразбиране 1). "2 x 4.40" означава qty=2 — задолжително го попълни.
 price винаги е общата сума за реда (количество × единична цена).
 Не добавяй „×2“ в label — приложението го добавя само.
 Върни само валиден JSON по схемата.`;
@@ -30,7 +30,8 @@ price винаги е общата сума за реда (количество 
     imageDataUrl: null,
     items: [],      // { id, label, price, qty }
     people: [],     // { id, name }
-    assignments: {}  // itemId -> [personId, ...]
+    assignments: {}, // itemId -> [personId, ...]
+    customQuantities: {} // itemId -> { personId: quantity }
   };
 
   let nextItemId = 1;
@@ -46,6 +47,7 @@ price винаги е общата сума за реда (количество 
         items: state.items,
         people: state.people,
         assignments: state.assignments,
+        customQuantities: state.customQuantities,
         nextItemId,
         nextPersonId
       }));
@@ -66,6 +68,11 @@ price винаги е общата сума за реда (количество 
       }
       if (data.people && Array.isArray(data.people)) state.people = data.people;
       if (data.assignments && typeof data.assignments === 'object') state.assignments = data.assignments;
+      if (data.customQuantities && typeof data.customQuantities === 'object') {
+        state.customQuantities = data.customQuantities;
+      } else {
+        state.customQuantities = {};
+      }
       if (typeof data.nextItemId === 'number') nextItemId = data.nextItemId;
       if (typeof data.nextPersonId === 'number') nextPersonId = data.nextPersonId;
       const step = steps.includes(data.currentStep) ? data.currentStep : 'step-upload';
@@ -469,7 +476,7 @@ price винаги е общата сума за реда (количество 
   async function scanWithGemini(imageDataUrl) {
     const { mimeType, base64 } = parseDataUrl(imageDataUrl);
     const apiKey = getGeminiApiKey();
-    if (!apiKey) throw new Error('Липсва API ключ. Копирай config.example.js като config.local.js.');
+    if (!apiKey) throw new Error('Липсва API ключ. Настрои го в Разчети с AI.');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
     const body = {
       contents: [{
@@ -600,7 +607,7 @@ price винаги е общата сума за реда (количество 
   if (btnScanAi) {
     btnScanAi.addEventListener('click', () => {
       if (!getGeminiApiKey()) {
-        showToast('Няма API ключ. Копирай config.example.js → config.local.js');
+        showToast('Няма API ключ в config.local.js.');
         return;
       }
       const statusEl = startScan('Подготвям снимката...');
@@ -916,6 +923,7 @@ price винаги е общата сума за реда (количество 
       li.querySelector('.btn-remove-item').addEventListener('click', () => {
         state.items = state.items.filter(i => i.id !== item.id);
         delete state.assignments[item.id];
+        if (state.customQuantities) delete state.customQuantities[item.id];
         renderItems();
         saveState();
       });
@@ -977,6 +985,12 @@ price винаги е общата сума за реда (количество 
         state.people = state.people.filter(p => p.id !== person.id);
         Object.keys(state.assignments).forEach(itemId => {
           state.assignments[itemId] = state.assignments[itemId].filter(pid => pid !== person.id);
+          if (state.customQuantities && state.customQuantities[itemId]) {
+            delete state.customQuantities[itemId][person.id];
+            if (state.assignments[itemId].length < 2) {
+              delete state.customQuantities[itemId];
+            }
+          }
         });
         renderPeople();
         saveState();
@@ -1029,6 +1043,8 @@ price винаги е общата сума за реда (количество 
       const card = document.createElement('div');
       card.className = 'assign-card';
       const assigned = state.assignments[item.id] || [];
+      const itemQty = resolveItemQty(item.label, item.qty);
+
       card.innerHTML = `
         <span class="item-label">${escapeHtml(item.label) || '(без име)'}</span>
         <span class="item-price">${formatMoney(total)} €</span>
@@ -1039,14 +1055,185 @@ price винаги е общата сума за реда (количество 
           <button type="button" class="btn-link assign-none">Никой</button>
         </div>
         <div class="assign-checkboxes"></div>
+        <div class="assign-qty-fields" style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;"></div>
       `;
+
       const perPersonEl = card.querySelector('.assign-per-person');
       const container = card.querySelector('.assign-checkboxes');
+      const qtyFieldsContainer = card.querySelector('.assign-qty-fields');
+
+      const updateQtyConstraints = (activePid) => {
+        const currentAssigned = state.assignments[item.id] || [];
+        let sumOfAll = 0;
+        
+        currentAssigned.forEach(pid => {
+          const val = state.customQuantities[item.id]?.[pid];
+          const parsedVal = val !== undefined ? parseFloat(val) : (itemQty / currentAssigned.length);
+          sumOfAll += isNaN(parsedVal) ? 0 : parsedVal;
+
+          const input = qtyFieldsContainer.querySelector(`input[data-person-id="${pid}"]`);
+          if (input) {
+            const otherIds = currentAssigned.filter(id => id !== pid);
+            const sumOfOthers = otherIds.reduce((sum, id) => {
+              const v = state.customQuantities[item.id]?.[id];
+              const pV = v !== undefined ? parseFloat(v) : (itemQty / currentAssigned.length);
+              return sum + (isNaN(pV) ? 0 : pV);
+            }, 0);
+            
+            input.max = Math.max(0, itemQty - sumOfOthers).toString();
+            
+            if (pid !== activePid) {
+              let currentVal = parseFloat(input.value);
+              if (isNaN(currentVal)) currentVal = 0;
+              const maxAllowed = itemQty - sumOfOthers;
+              if (currentVal > maxAllowed) {
+                input.value = currentVal.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+                state.customQuantities[item.id][pid] = maxAllowed;
+              }
+            }
+          }
+        });
+
+        const allocatedLabel = qtyFieldsContainer.querySelector('.qty-allocated-label');
+        if (allocatedLabel) {
+          allocatedLabel.style.color = Math.abs(sumOfAll - itemQty) < 0.01 ? '#68d391' : '#fc8181';
+          allocatedLabel.textContent = `Разпределени: ${sumOfAll.toFixed(2).replace(/\.00$/, '')} от ${itemQty} бр.`;
+        }
+      };
+
+      const rebuildQtyDOM = () => {
+        qtyFieldsContainer.innerHTML = '';
+        const currentAssigned = state.assignments[item.id] || [];
+        
+        if (itemQty > 1 && currentAssigned.length >= 2) {
+          const header = document.createElement('div');
+          header.className = 'qty-fields-header';
+          header.style.fontSize = '0.9rem';
+          header.style.color = '#cbd5e0';
+          header.style.marginTop = '0.6rem';
+          header.style.marginBottom = '0.4rem';
+          header.style.fontWeight = '600';
+          header.textContent = `Разпредели количества (общо ${itemQty} бр.):`;
+          qtyFieldsContainer.appendChild(header);
+
+          currentAssigned.forEach(pid => {
+            const person = state.people.find(p => p.id === pid);
+            if (!person) return;
+
+            const row = document.createElement('div');
+            row.className = 'qty-field-row';
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.justifyContent = 'space-between';
+            row.style.background = 'rgba(255,255,255,0.04)';
+            row.style.padding = '0.4rem 0.6rem';
+            row.style.borderRadius = '8px';
+            row.style.gap = '0.75rem';
+
+            const nameSpan = document.createElement('span');
+            nameSpan.style.fontSize = '0.95rem';
+            nameSpan.style.color = '#cbd5e0';
+            nameSpan.textContent = person.name;
+
+            const inputWrapper = document.createElement('div');
+            inputWrapper.style.display = 'flex';
+            inputWrapper.style.alignItems = 'center';
+            inputWrapper.style.gap = '0.4rem';
+
+            const qtyInput = document.createElement('input');
+            qtyInput.type = 'number';
+            qtyInput.dataset.personId = pid;
+            qtyInput.style.width = '4.5rem';
+            qtyInput.style.minHeight = '36px';
+            qtyInput.style.background = 'rgba(0,0,0,0.25)';
+            qtyInput.style.border = '1px solid rgba(255,255,255,0.15)';
+            qtyInput.style.borderRadius = '6px';
+            qtyInput.style.color = '#fff';
+            qtyInput.style.textAlign = 'right';
+            qtyInput.style.padding = '0.25rem 0.5rem';
+            qtyInput.style.fontSize = '16px';
+            qtyInput.min = '0';
+            qtyInput.step = 'any';
+
+            const currentVal = state.customQuantities[item.id]?.[pid] !== undefined
+              ? state.customQuantities[item.id][pid]
+              : (itemQty / currentAssigned.length);
+
+            qtyInput.value = currentVal.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+
+            qtyInput.addEventListener('input', (e) => {
+              let enteredVal = parseFloat(e.target.value);
+              if (isNaN(enteredVal) || enteredVal < 0) {
+                enteredVal = 0;
+              }
+              
+              const otherIds = currentAssigned.filter(id => id !== pid);
+              const sumOfOthers = otherIds.reduce((sum, id) => {
+                const v = state.customQuantities[item.id]?.[id];
+                const pV = v !== undefined ? parseFloat(v) : (itemQty / currentAssigned.length);
+                return sum + (isNaN(pV) ? 0 : pV);
+              }, 0);
+
+              const maxVal = itemQty - sumOfOthers;
+              if (enteredVal > maxVal) {
+                enteredVal = maxVal;
+                e.target.value = enteredVal.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+              }
+
+              state.customQuantities[item.id] = state.customQuantities[item.id] || {};
+              currentAssigned.forEach(id => {
+                if (state.customQuantities[item.id][id] === undefined) {
+                  state.customQuantities[item.id][id] = (itemQty / currentAssigned.length);
+                }
+              });
+
+              state.customQuantities[item.id][pid] = enteredVal;
+              saveState();
+              updateQtyConstraints(pid);
+            });
+
+            const suffixSpan = document.createElement('span');
+            suffixSpan.style.fontSize = '0.85rem';
+            suffixSpan.style.color = '#718096';
+            suffixSpan.textContent = 'бр.';
+
+            inputWrapper.appendChild(qtyInput);
+            inputWrapper.appendChild(suffixSpan);
+
+            row.appendChild(nameSpan);
+            row.appendChild(inputWrapper);
+            qtyFieldsContainer.appendChild(row);
+          });
+
+          const footer = document.createElement('div');
+          footer.style.display = 'flex';
+          footer.style.justifyContent = 'space-between';
+          footer.style.fontSize = '0.85rem';
+          footer.style.marginTop = '0.25rem';
+          footer.style.padding = '0 0.25rem';
+
+          const allocatedSpan = document.createElement('span');
+          allocatedSpan.className = 'qty-allocated-label';
+          
+          footer.appendChild(allocatedSpan);
+          qtyFieldsContainer.appendChild(footer);
+
+          updateQtyConstraints(null);
+        } else {
+          qtyFieldsContainer.innerHTML = '';
+        }
+      };
+
       const updatePerPerson = () => {
         const ids = state.assignments[item.id] || [];
         const n = ids.length;
-        perPersonEl.textContent = n > 0 ? 'По ' + formatMoney(total / n) + ' € на човек' : '';
+        if (itemQty > 1 && n >= 2) {
+          perPersonEl.textContent = 'Цена за 1 бр.: ' + formatMoney(total / itemQty) + ' €';
+        } else {
+          perPersonEl.textContent = n > 0 ? 'По ' + formatMoney(total / n) + ' € на човек' : '';
+        }
       };
+
       state.people.forEach(person => {
         const label = document.createElement('label');
         const cb = document.createElement('input');
@@ -1055,8 +1242,18 @@ price винаги е общата сума за реда (количество 
         cb.checked = assigned.includes(person.id);
         cb.addEventListener('change', () => {
           state.assignments[item.id] = state.assignments[item.id] || [];
-          if (cb.checked) state.assignments[item.id].push(person.id);
-          else state.assignments[item.id] = state.assignments[item.id].filter(id => id !== person.id);
+          if (cb.checked) {
+            state.assignments[item.id].push(person.id);
+          } else {
+            state.assignments[item.id] = state.assignments[item.id].filter(id => id !== person.id);
+            if (state.customQuantities && state.customQuantities[item.id]) {
+              delete state.customQuantities[item.id][person.id];
+              if (state.assignments[item.id].length < 2) {
+                delete state.customQuantities[item.id];
+              }
+            }
+          }
+          rebuildQtyDOM();
           updatePerPerson();
           saveState();
         });
@@ -1064,19 +1261,28 @@ price винаги е общата сума за реда (количество 
         label.appendChild(document.createTextNode(escapeHtml(person.name)));
         container.appendChild(label);
       });
+
       card.querySelector('.assign-all').addEventListener('click', () => {
         state.assignments[item.id] = state.people.map(p => p.id);
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+        rebuildQtyDOM();
         updatePerPerson();
         saveState();
       });
+
       card.querySelector('.assign-none').addEventListener('click', () => {
         state.assignments[item.id] = [];
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+        if (state.customQuantities && state.customQuantities[item.id]) {
+          delete state.customQuantities[item.id];
+        }
+        rebuildQtyDOM();
         updatePerPerson();
         saveState();
       });
+
       updatePerPerson();
+      rebuildQtyDOM();
       assignList.appendChild(card);
     });
   }
@@ -1123,8 +1329,23 @@ price винаги е общата сума за реда (количество 
       const total = getItemTotal(item);
       const personIds = state.assignments[item.id] || [];
       if (personIds.length === 0) return;
-      const perPerson = total / personIds.length;
-      personIds.forEach(pid => { owes[pid] = (owes[pid] || 0) + perPerson; });
+      
+      const itemQty = resolveItemQty(item.label, item.qty);
+      const customMap = state.customQuantities?.[item.id];
+      const hasCustom = itemQty > 1 && personIds.length >= 2 && customMap && Object.keys(customMap).length > 0;
+
+      if (hasCustom) {
+        const unitPrice = total / itemQty;
+        personIds.forEach(pid => {
+          const qtyVal = customMap[pid];
+          const personQty = qtyVal !== undefined ? parseFloat(qtyVal) : (itemQty / personIds.length);
+          const share = personQty * unitPrice;
+          owes[pid] = (owes[pid] || 0) + share;
+        });
+      } else {
+        const perPerson = total / personIds.length;
+        personIds.forEach(pid => { owes[pid] = (owes[pid] || 0) + perPerson; });
+      }
     });
 
     const total = getTotalSum();
@@ -1144,15 +1365,38 @@ price винаги е общата сума за реда (количество 
     state.items.forEach(item => {
       const personIds = state.assignments[item.id] || [];
       if (!personIds.includes(personId)) return;
+      
       const itemTotal = getItemTotal(item);
-      const share = itemTotal / personIds.length;
-      total += share;
-      entries.push({
-        label: (item.label || '').trim() || '(без име)',
-        share,
-        itemTotal,
-        splitCount: personIds.length
-      });
+      const itemQty = resolveItemQty(item.label, item.qty);
+      const customMap = state.customQuantities?.[item.id];
+      const hasCustom = itemQty > 1 && personIds.length >= 2 && customMap && Object.keys(customMap).length > 0;
+
+      let share = 0;
+      if (hasCustom) {
+        const unitPrice = itemTotal / itemQty;
+        const qtyVal = customMap[personId];
+        const personQty = qtyVal !== undefined ? parseFloat(qtyVal) : (itemQty / personIds.length);
+        share = personQty * unitPrice;
+        
+        total += share;
+        entries.push({
+          label: (item.label || '').trim() || '(без име)',
+          share,
+          itemTotal,
+          splitCount: personIds.length,
+          customQty: personQty,
+          itemQty: itemQty
+        });
+      } else {
+        share = itemTotal / personIds.length;
+        total += share;
+        entries.push({
+          label: (item.label || '').trim() || '(без име)',
+          share,
+          itemTotal,
+          splitCount: personIds.length
+        });
+      }
     });
 
     return { person, entries, total };
@@ -1169,7 +1413,9 @@ price винаги е общата сума за реда (количество 
     } else {
       breakdown.entries.forEach(entry => {
         let line = entry.label + ' — ' + formatMoney(entry.share) + ' €';
-        if (entry.splitCount > 1) {
+        if (entry.customQty !== undefined) {
+          line += ' (' + entry.customQty.toFixed(2).replace(/\.00$/, '') + ' бр. от ' + entry.itemQty + ' бр. общо)';
+        } else if (entry.splitCount > 1) {
           line += ' (÷ ' + entry.splitCount + ', от ' + formatMoney(entry.itemTotal) + ' €)';
         }
         parts.push(line);
@@ -1206,7 +1452,6 @@ price винаги е общата сума за реда (количество 
 
   function renderSummaryImageCanvas(summary) {
     const padding = 32;
-    const lineHeight = 36;
     const titleHeight = 44;
     const metaHeight = 28;
     const rowHeight = 52;
@@ -1338,7 +1583,11 @@ price винаги е общата сума за реда (количество 
         const shareW = ctx.measureText(shareText).width;
         ctx.fillText(shareText, width - padding - 14 - shareW, cardY + 24);
 
-        if (entry.splitCount > 1) {
+        if (entry.customQty !== undefined) {
+          ctx.fillStyle = '#718096';
+          ctx.font = '12px Segoe UI, system-ui, sans-serif';
+          ctx.fillText(`${entry.customQty.toFixed(2).replace(/\.00$/, '')} бр. от ${entry.itemQty} бр.`, padding + 14, cardY + 44);
+        } else if (entry.splitCount > 1) {
           ctx.fillStyle = '#718096';
           ctx.font = '12px Segoe UI, system-ui, sans-serif';
           ctx.fillText('÷ ' + entry.splitCount, padding + 14, cardY + 44);
@@ -1443,9 +1692,12 @@ price винаги е общата сума за реда (количество 
         breakdown.entries.forEach(entry => {
           const li = document.createElement('li');
           li.className = 'breakdown-item';
-          const splitHint = entry.splitCount > 1
-            ? `<span class="breakdown-item-split">÷ ${entry.splitCount} (от ${formatMoney(entry.itemTotal)} €)</span>`
-            : '';
+          let splitHint = '';
+          if (entry.customQty !== undefined) {
+             splitHint = `<span class="breakdown-item-split">${entry.customQty.toFixed(2).replace(/\.00$/, '')} бр. от общо ${entry.itemQty} бр. (всеки по ${(entry.itemTotal / entry.itemQty).toFixed(2)} €)</span>`;
+          } else if (entry.splitCount > 1) {
+             splitHint = `<span class="breakdown-item-split">÷ ${entry.splitCount} (от ${formatMoney(entry.itemTotal)} €)</span>`;
+          }
           li.innerHTML = `
             <span class="breakdown-item-label">${escapeHtml(entry.label)}${splitHint}</span>
             <span class="breakdown-item-share">${formatMoney(entry.share)} €</span>
@@ -1633,6 +1885,7 @@ price винаги е общата сума за реда (количество 
     state.items = [];
     state.people = [];
     state.assignments = {};
+    state.customQuantities = {};
     nextItemId = 1;
     nextPersonId = 1;
     imagePreview.innerHTML = '';
@@ -1663,10 +1916,12 @@ price винаги е общата сума за реда (количество 
     else if (stepId === 'step-summary') renderSummary();
   });
 
-  // Винаги отваряме от първата стъпка с празно състояние (без възстановяване от localStorage)
-  try {
-    localStorage.removeItem(STATE_KEY);
-  } catch (e) { /* ignored */ }
-  renderItems();
-  showStep('step-upload', false);
+  // Always boot freshly to avoid stale cache on reload unless they already restored
+  if (!loadState()) {
+    try {
+      localStorage.removeItem(STATE_KEY);
+    } catch (e) { /* ignored */ }
+    renderItems();
+    showStep('step-upload', false);
+  }
 })();

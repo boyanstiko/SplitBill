@@ -70,7 +70,7 @@ body {
   background: rgba(255,255,255,0.08);
   border: 2px solid transparent;
   text-decoration: none;
-  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
 .stepper-dot:active { color: #e2e8f0; background: rgba(255,255,255,0.12); }
@@ -390,6 +390,14 @@ body {
   min-height: 22px;
   accent-color: #4299e1;
   flex-shrink: 0;
+}
+
+/* Custom Qty fields styling on split step */
+.qty-field-row {
+  transition: background-color 0.2s;
+}
+.qty-field-row:hover {
+  background-color: rgba(255,255,255,0.08) !important;
 }
 
 /* Summary — по-големи карти за четливост */
